@@ -30,7 +30,7 @@ class ERMBase(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         y_pred, y = self(*batch)
         loss = F.binary_cross_entropy_with_logits(y_pred, y.float())
-        self.log('val_loss', loss, on_step=False, on_epoch=True)
+        self.log('val_loss', loss, on_step=True, on_epoch=True)
         self.val_metric.update(y_pred, y)
 
     def on_validation_epoch_end(self):

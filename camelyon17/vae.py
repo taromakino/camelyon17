@@ -277,11 +277,11 @@ class VAE(pl.LightningModule):
         x, y, e = batch
         log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
         loss = -log_prob_x_z - log_prob_y_zc + kl + prior_norm
-        self.log('val_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
-        self.log('val_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
-        self.log('val_kl', kl, on_step=False, on_epoch=True)
-        self.log('val_prior_norm', prior_norm, on_step=False, on_epoch=True)
-        self.log('val_loss', loss, on_step=False, on_epoch=True)
+        self.log('val_log_prob_x_z', log_prob_x_z, on_step=True, on_epoch=True)
+        self.log('val_log_prob_y_zc', log_prob_y_zc, on_step=True, on_epoch=True)
+        self.log('val_kl', kl, on_step=True, on_epoch=True)
+        self.log('val_prior_norm', prior_norm, on_step=True, on_epoch=True)
+        self.log('val_loss', loss, on_step=True, on_epoch=True)
 
     def make_infer_params(self, batch_size):
         z_param = nn.Parameter(torch.repeat_interleave(self.q_z().loc[None], batch_size, dim=0))
