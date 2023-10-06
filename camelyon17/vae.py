@@ -263,7 +263,7 @@ class VAE(pl.LightningModule):
         prior_dist = self.prior(y_embed, e_embed)
         kl = D.kl_divergence(posterior_dist, prior_dist).mean()
         prior_norm = (prior_dist.loc ** 2).mean()
-        return self.x_mult * log_prob_x_z, self.y_mult * log_prob_y_zc, self.beta * kl, self.reg_mult * prior_norm
+        return log_prob_x_z, log_prob_y_zc, self.beta * kl, self.reg_mult * prior_norm
 
     def training_step(self, batch, batch_idx):
         assert self.task == Task.VAE
@@ -311,7 +311,7 @@ class VAE(pl.LightningModule):
         # log p(z|y,e)
         prior_dist = self.prior(y_embed, e_embed)
         log_prob_z_ye = prior_dist.log_prob(z).mean()
-        return z, self.x_mult * log_prob_x_z, self.y_mult * log_prob_y_zc, self.alpha * log_prob_z_ye
+        return z, log_prob_x_z, log_prob_y_zc, self.alpha * log_prob_z_ye
 
     def infer_z(self, x):
         z_param, y_embed_param, e_embed_param = self.make_infer_params(len(x))
