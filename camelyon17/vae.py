@@ -90,8 +90,8 @@ class CNN(nn.Module):
         self.relu2 = nn.ReLU()
         self.down_conv = nn.Conv2d(48, 24, 2, 2, 0)
 
-    def forward(self, inputs):
-        init_conv = self.init_conv(inputs)
+    def forward(self, x):
+        init_conv = self.init_conv(x)
         bn1 = self.BN1(init_conv)
         relu1 = self.relu1(bn1)
         db1 = self.db1(relu1)
@@ -120,7 +120,6 @@ class DCNN(nn.Module):
         self.BN2 = nn.BatchNorm2d(24)
         self.relu2 = nn.ReLU()
         self.out_conv = nn.ConvTranspose2d(24, 3, 3, 1, 1)
-        self.tanh = nn.Tanh()
 
     def forward(self, z):
         up_conv = self.up_conv(z)
@@ -134,8 +133,7 @@ class DCNN(nn.Module):
         de_conv = self.de_conv(relu1)
         bn2 = self.BN2(de_conv)
         relu2 = self.relu2(bn2)
-        out_conv = self.out_conv(relu2)
-        output = self.tanh(out_conv)
+        output = self.out_conv(relu2)
         return output
 
 
@@ -277,11 +275,11 @@ class VAE(pl.LightningModule):
         x, y, e = batch
         log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
         loss = -log_prob_x_z - log_prob_y_zc + kl + prior_norm
-        self.log('val_log_prob_x_z', log_prob_x_z, on_step=True, on_epoch=True)
-        self.log('val_log_prob_y_zc', log_prob_y_zc, on_step=True, on_epoch=True)
-        self.log('val_kl', kl, on_step=True, on_epoch=True)
-        self.log('val_prior_norm', prior_norm, on_step=True, on_epoch=True)
-        self.log('val_loss', loss, on_step=True, on_epoch=True)
+        self.log('val_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
+        self.log('val_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
+        self.log('val_kl', kl, on_step=False, on_epoch=True)
+        self.log('val_prior_norm', prior_norm, on_step=False, on_epoch=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True)
 
     def make_infer_params(self, batch_size):
         z_param = nn.Parameter(torch.repeat_interleave(self.q_z().loc[None], batch_size, dim=0))
@@ -345,10 +343,10 @@ class VAE(pl.LightningModule):
             self.decoder.gru.train()
             with torch.set_grad_enabled(True):
                 z, log_prob_x_z, log_prob_y_zc, log_prob_z_ye, loss = self.infer_z(x)
-                self.log('log_prob_x_z', log_prob_x_z, on_step=True, on_epoch=True)
-                self.log('log_prob_y_zc', log_prob_y_zc, on_step=True, on_epoch=True)
-                self.log('log_prob_z_ye', log_prob_z_ye, on_step=True, on_epoch=True)
-                self.log('loss', loss, on_step=True, on_epoch=True)
+                self.log('log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
+                self.log('log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
+                self.log('log_prob_z_ye', log_prob_z_ye, on_step=False, on_epoch=True)
+                self.log('loss', loss, on_step=False, on_epoch=True)
                 self.z_infer.append(z.detach().cpu())
                 self.y.append(y.cpu())
                 self.e.append(e.cpu())
