@@ -5,7 +5,7 @@ import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
 from data import N_CLASSES, N_ENVS
-from torch.optim import SGD
+from torch.optim import Adam
 from utils.enums import Task
 from utils.nn_utils import MLP, arr_to_tril, arr_to_cov
 
@@ -207,7 +207,7 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, h_sizes, beta, reg_mult, lr, momentum, weight_decay, alpha, lr_infer, n_infer_steps):
+    def __init__(self, task, z_size, rank, h_sizes, beta, reg_mult, lr, weight_decay, alpha, lr_infer, n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
@@ -215,7 +215,6 @@ class VAE(pl.LightningModule):
         self.beta = beta
         self.reg_mult = reg_mult
         self.lr = lr
-        self.momentum = momentum
         self.weight_decay = weight_decay
         self.alpha = alpha
         self.lr_infer = lr_infer
@@ -313,7 +312,7 @@ class VAE(pl.LightningModule):
 
     def infer_z(self, x):
         z_param, y_embed_param, e_embed_param = self.make_infer_params(len(x))
-        optim = SGD([z_param, y_embed_param, e_embed_param], lr=self.lr_infer)
+        optim = Adam([z_param, y_embed_param, e_embed_param], lr=self.lr_infer)
         optim_loss = torch.inf
         optim_z = optim_log_prob_x_z = optim_log_prob_y_zc = optim_log_prob_z_ye = None
         for _ in range(self.n_infer_steps):
@@ -364,4 +363,4 @@ class VAE(pl.LightningModule):
             torch.save((z, y, e), os.path.join(self.trainer.log_dir, f'version_{self.trainer.logger.version}', 'infer_z.pt'))
 
     def configure_optimizers(self):
-        return SGD(self.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
+        return Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)

@@ -3,16 +3,15 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from utils.nn_utils import MLP
 from vae import CNN_SIZE, CNN
-from torch.optim import SGD
+from torch.optim import Adam
 from torchmetrics import Accuracy
 
 
 class ERMBase(pl.LightningModule):
-    def __init__(self, lr, momentum, weight_decay):
+    def __init__(self, lr, weight_decay):
         super().__init__()
         self.save_hyperparameters()
         self.lr = lr
-        self.momentum = momentum
         self.weight_decay = weight_decay
         self.train_metric = Accuracy('binary')
         self.val_metric = Accuracy('binary')
@@ -44,12 +43,12 @@ class ERMBase(pl.LightningModule):
         self.log('eval_metric', self.eval_metric.compute())
 
     def configure_optimizers(self):
-        return SGD(self.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
+        return Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
 
 
 class ERM_X(ERMBase):
-    def __init__(self, h_sizes, lr, momentum, weight_decay):
-        super().__init__(lr, momentum, weight_decay)
+    def __init__(self, h_sizes, lr, weight_decay):
+        super().__init__(lr, weight_decay)
         self.save_hyperparameters()
         self.cnn = CNN()
         self.mlp = MLP(CNN_SIZE, h_sizes, 1)
@@ -62,8 +61,8 @@ class ERM_X(ERMBase):
 
 
 class ERM_ZC(ERMBase):
-    def __init__(self, z_size, h_sizes, lr, momentum, weight_decay):
-        super().__init__(lr, momentum, weight_decay)
+    def __init__(self, z_size, h_sizes, lr, weight_decay):
+        super().__init__(lr, weight_decay)
         self.save_hyperparameters()
         self.mlp = MLP(z_size, h_sizes, 1)
 
