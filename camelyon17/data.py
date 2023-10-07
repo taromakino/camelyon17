@@ -25,7 +25,9 @@ class Camelyon17Dataset(Dataset):
     def __getitem__(self, idx):
         x = self.transforms(Image.open(os.path.join(self.dpath, self.df.fname.iloc[idx])).convert('RGB'))
         y = torch.tensor(self.df.tumor.iloc[idx], dtype=torch.long)
-        e = torch.tensor(self.df.center.iloc[idx], dtype=torch.long)
+        e = torch.tensor(self.df.center.iloc[idx])
+        if not torch.isnan(e).any():
+            e = e.long()
         return x, y, e
 
 
