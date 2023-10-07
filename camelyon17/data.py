@@ -31,7 +31,13 @@ class Camelyon17Dataset(Dataset):
         return x, y, e
 
 
-def make_data(batch_size):
+def subsample(rng, df, n_debug_examples):
+    idxs = rng.choice(len(df), n_debug_examples, replace=False)
+    return df.iloc[idxs]
+
+
+def make_data(batch_size, n_debug_examples):
+    rng = np.random.RandomState(0)
     dpath = os.path.join(os.environ['DATA_DPATH'], 'camelyon17_v1.0')
     df = pd.read_csv(os.path.join(dpath, 'metadata.csv'), index_col=0, dtype={'patient': 'str'})
     df['fname'] = [
@@ -62,6 +68,12 @@ def make_data(batch_size):
     df_val_id.loc[:, 'center'] = [unordered_to_ordered[elem] for elem in df_val_id.center]
     df_val_ood.loc[:, 'center'] = np.nan
     df_test.loc[:, 'center'] = np.nan
+
+    if n_debug_examples is not None:
+        df_train = subsample(rng, df_train, n_debug_examples)
+        df_val_id = subsample(rng, df_val_id, n_debug_examples)
+        df_val_ood = subsample(rng, df_val_ood, n_debug_examples)
+        df_test = subsample(rng, df_test, n_debug_examples)
 
     data_train = DataLoader(Camelyon17Dataset(dpath, df_train), shuffle=True, batch_size=batch_size)
     data_val_id = DataLoader(Camelyon17Dataset(dpath, df_val_id), batch_size=batch_size)

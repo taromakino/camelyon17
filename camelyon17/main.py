@@ -22,7 +22,7 @@ def make_data(args):
         data_test = make_dataloader(torch.load(os.path.join(args.dpath, Task.INFER_Z.value, EvalStage.TEST.value,
             f'version_{args.seed}', 'infer_z.pt')), args.batch_size, False)
     else:
-        data_train, data_val_iid, data_val_ood, data_test = data.make_data(args.batch_size)
+        data_train, data_val_iid, data_val_ood, data_test = data.make_data(args.batch_size, args.n_debug_examples)
     if args.eval_stage == EvalStage.TRAIN:
         data_eval = data_train
     elif args.eval_stage == EvalStage.VAL_IID:
@@ -114,6 +114,7 @@ if __name__ == '__main__':
     parser.add_argument('--eval_stage', type=EvalStage, choices=list(EvalStage), default='val_ood')
     parser.add_argument('--is_train', action='store_true')
     parser.add_argument('--batch_size', type=int, default=1024)
+    parser.add_argument('--n_debug_examples', type=int)
     parser.add_argument('--z_size', type=int, default=200)
     parser.add_argument('--rank', type=int, default=100)
     parser.add_argument('--h_sizes', nargs='+', type=int, default=[512, 512])
