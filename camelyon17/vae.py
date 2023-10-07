@@ -233,7 +233,7 @@ class VAE(pl.LightningModule):
         self.q_z_mu = nn.Parameter(torch.full((2 * z_size,), torch.nan), requires_grad=False)
         self.q_z_var = nn.Parameter(torch.full((2 * z_size,), torch.nan), requires_grad=False)
         self.z_sample = []
-        self.z_infer, self.y, self.e = [], [], []
+        self.x, self.y, self.e, self.z = [], [], [], []
 
     def sample_z(self, dist):
         mu, scale_tril = dist.loc, dist.scale_tril
@@ -338,17 +338,16 @@ class VAE(pl.LightningModule):
             self.z_sample.append(z.detach().cpu())
         else:
             assert self.task == Task.INFER_Z
-            self.encoder.gru.train()
-            self.decoder.gru.train()
             with torch.set_grad_enabled(True):
                 z, log_prob_x_z, log_prob_y_zc, log_prob_z_ye, loss = self.infer_z(x)
                 self.log('log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
                 self.log('log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
                 self.log('log_prob_z_ye', log_prob_z_ye, on_step=False, on_epoch=True)
                 self.log('loss', loss, on_step=False, on_epoch=True)
-                self.z_infer.append(z.detach().cpu())
+                self.x.append(x.cpu())
                 self.y.append(y.cpu())
                 self.e.append(e.cpu())
+                self.z.append(z.detach().cpu())
 
     def on_test_epoch_end(self):
         if self.task == Task.Q_Z:
@@ -357,10 +356,11 @@ class VAE(pl.LightningModule):
             self.q_z_var.data = torch.var(z, 0)
         else:
             assert self.task == Task.INFER_Z
-            z = torch.cat(self.z_infer)
+            x = torch.cat(self.x)
             y = torch.cat(self.y)
             e = torch.cat(self.e)
-            torch.save((z, y, e), os.path.join(self.trainer.log_dir, f'version_{self.trainer.logger.version}', 'infer_z.pt'))
+            z = torch.cat(self.z)
+            torch.save((x, y, e, z), os.path.join(self.trainer.log_dir, f'version_{self.trainer.logger.version}', 'infer_z.pt'))
 
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
