@@ -147,13 +147,13 @@ class Encoder(nn.Module):
         self.low_rank = MLP(CNN_SIZE + N_CLASSES + N_ENVS, h_sizes, 2 * z_size * rank)
         self.diag = MLP(CNN_SIZE + N_CLASSES + N_ENVS, h_sizes, 2 * z_size)
 
-    def forward(self, x, y_one_hot, e_embed):
+    def forward(self, x, y_embed, e_embed):
         batch_size = len(x)
         x = self.cnn(x).view(batch_size, -1)
-        mu = self.mu(x, y_one_hot, e_embed)
-        low_rank = self.low_rank(x, y_one_hot, e_embed)
+        mu = self.mu(x, y_embed, e_embed)
+        low_rank = self.low_rank(x, y_embed, e_embed)
         low_rank = low_rank.reshape(batch_size, 2 * self.z_size, self.rank)
-        diag = self.diag(x, y_one_hot, e_embed)
+        diag = self.diag(x, y_embed, e_embed)
         return D.MultivariateNormal(mu, scale_tril=arr_to_tril(low_rank, diag))
 
 
