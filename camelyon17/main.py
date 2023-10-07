@@ -32,7 +32,7 @@ def make_data(args):
     else:
         assert args.eval_stage == EvalStage.TEST
         data_eval = data_test
-    return data_train, data_val_iid, data_eval
+    return data_train, data_val_iid, data_val_ood, data_test, data_eval
 
 
 def ckpt_fpath(args, task):
@@ -63,7 +63,7 @@ def make_model(args):
 
 def main(args):
     pl.seed_everything(args.seed)
-    data_train, data_val_iid, data_eval = make_data(args)
+    data_train, data_val_iid, data_val_ood, data_test, data_eval = make_data(args)
     model = make_model(args)
     if args.task in [
         Task.ERM_X,
@@ -76,7 +76,7 @@ def main(args):
                     EarlyStopping(monitor='val_metric', mode='max', patience=int(args.early_stop_ratio * args.n_epochs)),
                     ModelCheckpoint(monitor='val_metric', mode='max', filename='best')],
                 max_epochs=args.n_epochs)
-            trainer.fit(model, data_train, data_val_iid)
+            trainer.fit(model, data_train, data_val_ood)
         else:
             trainer = pl.Trainer(logger=CSVLogger(os.path.join(args.dpath, args.task.value, args.eval_stage.value),
                 name='', version=args.seed), max_epochs=1)
