@@ -312,7 +312,7 @@ class VAE(pl.LightningModule):
 
     def infer_z(self, x):
         z_param, y_embed_param, e_embed_param = self.make_infer_params(len(x))
-        optim = Adam([z_param, y_embed_param, e_embed_param], lr=self.lr_infer)
+        optim = Adam([z_param, y_embed_param, e_embed_param], lr=self.lr_infer, weight_decay=self.weight_decay)
         optim_loss = torch.inf
         optim_z = optim_log_prob_x_z = optim_log_prob_y_zc = optim_log_prob_z_ye = None
         for _ in range(self.n_infer_steps):
