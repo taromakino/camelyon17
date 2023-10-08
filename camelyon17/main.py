@@ -14,18 +14,18 @@ from vae import VAE
 def make_data(args):
     if args.task == Task.ERM_ZC:
         data_train = make_dataloader(torch.load(os.path.join(args.dpath, Task.INFER_Z.value, EvalStage.TRAIN.value,
-            f'version_{args.seed}', 'infer_z.pt')), args.batch_size, True)
-        data_val_iid = make_dataloader(torch.load(os.path.join(args.dpath, Task.INFER_Z.value, EvalStage.VAL_IID.value,
-            f'version_{args.seed}', 'infer_z.pt')), args.batch_size, False)
+            f'version_{args.seed}', 'infer.pt')), args.batch_size, True)
+        data_val_iid = make_dataloader(torch.load(os.path.join(args.dpath, Task.INFER_Z.value, EvalStage.VAL_ID.value,
+            f'version_{args.seed}', 'infer.pt')), args.batch_size, False)
         data_val_ood = make_dataloader(torch.load(os.path.join(args.dpath, Task.INFER_Z.value, EvalStage.VAL_OOD.value,
-            f'version_{args.seed}', 'infer_z.pt')), args.batch_size, False)
+            f'version_{args.seed}', 'infer.pt')), args.batch_size, False)
         data_test = make_dataloader(torch.load(os.path.join(args.dpath, Task.INFER_Z.value, EvalStage.TEST.value,
-            f'version_{args.seed}', 'infer_z.pt')), args.batch_size, False)
+            f'version_{args.seed}', 'infer.pt')), args.batch_size, False)
     else:
         data_train, data_val_iid, data_val_ood, data_test = data.make_data(args.batch_size, args.n_debug_examples)
     if args.eval_stage == EvalStage.TRAIN:
         data_eval = data_train
-    elif args.eval_stage == EvalStage.VAL_IID:
+    elif args.eval_stage == EvalStage.VAL_ID:
         data_eval = data_val_iid
     elif args.eval_stage == EvalStage.VAL_OOD:
         data_eval = data_val_ood
