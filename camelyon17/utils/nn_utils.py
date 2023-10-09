@@ -4,6 +4,9 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
 
+COV_OFFSET = 1e-6
+
+
 class MLP(nn.Module):
     def __init__(self, input_size, x_sizes, output_size):
         super().__init__()
@@ -25,7 +28,8 @@ def make_dataloader(data_tuple, batch_size, is_train):
 
 
 def arr_to_cov(low_rank, diag):
-    return torch.bmm(low_rank, low_rank.transpose(1, 2)) + torch.diag_embed(F.softplus(diag))
+    return torch.bmm(low_rank, low_rank.transpose(1, 2)) + torch.diag_embed(F.softplus(diag) + torch.full_like(diag,
+        COV_OFFSET))
 
 
 def arr_to_tril(low_rank, diag):

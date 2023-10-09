@@ -32,8 +32,11 @@ class Camelyon17Dataset(Dataset):
 
 
 def subsample(rng, df, n_debug_examples):
-    idxs = rng.choice(len(df), n_debug_examples, replace=False)
-    return df.iloc[idxs]
+    if len(df) < n_debug_examples:
+        return df
+    else:
+        idxs = rng.choice(len(df), n_debug_examples, replace=False)
+        return df.iloc[idxs]
 
 
 def make_data(batch_size, n_debug_examples):
