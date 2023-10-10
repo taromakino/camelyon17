@@ -23,7 +23,9 @@ def make_data(args):
             f'version_{args.seed}', 'infer.pt')), args.batch_size, False)
     else:
         data_train, data_val_iid, data_val_ood, data_test = data.make_data(args.batch_size, args.n_debug_examples)
-    if args.eval_stage == EvalStage.TRAIN:
+    if args.eval_stage is None:
+        data_eval = None
+    elif args.eval_stage == EvalStage.TRAIN:
         data_eval = data_train
     elif args.eval_stage == EvalStage.VAL_ID:
         data_eval = data_val_iid
