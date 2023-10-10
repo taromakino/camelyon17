@@ -3,10 +3,9 @@ from enum import Enum
 
 class Task(Enum):
     ERM_X = 'erm_x'
-    ERM_ZC = 'erm_zc'
     VAE = 'vae'
     Q_Z = 'q_z'
-    INFER_Z = 'infer_z'
+    CLASSIFY = 'classify'
 
 
 class EvalStage(Enum):

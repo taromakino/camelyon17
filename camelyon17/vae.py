@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from data import N_CLASSES, N_ENVS
 from torch.optim import Adam
+from torchmetrics import Accuracy
 from utils.enums import Task
 from utils.nn_utils import MLP, arr_to_tril, arr_to_cov
 
@@ -236,6 +237,7 @@ class VAE(pl.LightningModule):
         self.q_z_var = nn.Parameter(torch.full((2 * z_size,), torch.nan), requires_grad=False)
         self.q_z_samples = []
         self.z, self.y, self.e = [], [], []
+        self.eval_metric = Accuracy('binary')
 
     def sample_z(self, dist):
         mu, scale_tril = dist.loc, dist.scale_tril
@@ -283,39 +285,45 @@ class VAE(pl.LightningModule):
     def infer_loss(self, x, z):
         batch_size = len(x)
         # log p(x|z_c,z_s)
-        log_prob_x_z = self.decoder(x, z).mean()
+        log_prob_x_z = self.decoder(x, z)
         # log p(y|z_c)
         z_c, z_s = torch.chunk(z, 2, dim=1)
         y_pred = self.classifier(z_c).view(-1)
-        optim_loss = torch.inf
+        losses = []
+        y_values = []
         for y_elem in range(N_CLASSES):
             y = torch.full((batch_size,), y_elem, dtype=torch.long, device=self.device)
             for e_elem in range(N_ENVS):
                 e = torch.full((batch_size,), e_elem, dtype=torch.long, device=self.device)
-                log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float())
+                log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
                 # log p(z|y,e)
                 prior_dist = self.prior(y, e)
-                log_prob_z_ye = prior_dist.log_prob(z).mean()
-                loss = -log_prob_x_z - log_prob_y_zc - self.alpha * log_prob_z_ye
-                if loss < optim_loss:
-                    optim_loss = loss
-        return optim_loss
+                log_prob_z_ye = prior_dist.log_prob(z)
+                losses.append((-log_prob_x_z - log_prob_y_zc - self.alpha * log_prob_z_ye)[:, None])
+                y_values.append(y_elem)
+        losses = torch.hstack(losses).min(dim=1)
+        idxs = losses.indices
+        y_values = torch.tensor(y_values, device=self.device)
+        y_pred = y_values[idxs]
+        return losses.values.mean(), y_pred
 
     def infer_z(self, x):
         batch_size = len(x)
         z_param = nn.Parameter(torch.repeat_interleave(self.q_z().loc[None], batch_size, dim=0))
         optim = Adam([z_param], lr=self.lr_infer)
         optim_loss = torch.inf
+        optim_y_pred = None
         optim_z = None
         for _ in range(self.n_infer_steps):
             optim.zero_grad()
-            loss = self.infer_loss(x, z_param)
+            loss, y_pred = self.infer_loss(x, z_param)
             loss.backward()
             optim.step()
             if loss < optim_loss:
                 optim_loss = loss
+                optim_y_pred = y_pred
                 optim_z = z_param.clone()
-        return optim_loss, optim_z
+        return optim_loss, optim_y_pred, optim_z
 
     def test_step(self, batch, batch_idx):
         x, y, e = batch
@@ -323,10 +331,11 @@ class VAE(pl.LightningModule):
             z = self.encoder(x, y, e).loc
             self.q_z_samples.append(z.detach().cpu())
         else:
-            assert self.task == Task.INFER_Z
+            assert self.task == Task.CLASSIFY
             with torch.set_grad_enabled(True):
-                loss, z = self.infer_z(x)
+                loss, y_pred, z = self.infer_z(x)
                 self.log('loss', loss, on_step=False, on_epoch=True)
+                self.eval_metric.update(y_pred, y)
                 self.x.append(x.cpu())
                 self.y.append(y.cpu())
                 self.e.append(e.cpu())
@@ -338,7 +347,8 @@ class VAE(pl.LightningModule):
             self.q_z_mu.data = torch.mean(z, 0)
             self.q_z_var.data = torch.var(z, 0)
         else:
-            assert self.task == Task.INFER_Z
+            assert self.task == Task.CLASSIFY
+            self.log('eval_metric', self.eval_metric.compute())
             z = torch.cat(self.z)
             y = torch.cat(self.y)
             e = torch.cat(self.e)
