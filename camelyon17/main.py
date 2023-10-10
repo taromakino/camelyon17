@@ -40,13 +40,14 @@ def ckpt_fpath(args, task):
 
 
 def make_model(args):
+    is_train = args.eval_stage is None
     if args.task == Task.ERM_X:
-        if args.is_train:
+        if is_train:
             return ERM_X(args.h_sizes, args.lr, args.weight_decay)
         else:
             return ERM_X.load_from_checkpoint(ckpt_fpath(args, args.task))
     elif args.task == Task.ERM_ZC:
-        if args.is_train:
+        if is_train:
             return ERM_ZC(args.z_size, args.h_sizes, args.lr, args.weight_decay)
         else:
             return ERM_ZC.load_from_checkpoint(ckpt_fpath(args, args.task))
@@ -69,7 +70,7 @@ def main(args):
         Task.ERM_X,
         Task.ERM_ZC
     ]:
-        if args.is_train:
+        if args.eval_stage is None:
             trainer = pl.Trainer(
                 logger=CSVLogger(os.path.join(args.dpath, args.task.value), name='', version=args.seed),
                 callbacks=[
@@ -111,20 +112,19 @@ if __name__ == '__main__':
     parser.add_argument('--dpath', type=str, default='results')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--task', type=Task, choices=list(Task), required=True)
-    parser.add_argument('--eval_stage', type=EvalStage, choices=list(EvalStage), default='val_ood')
-    parser.add_argument('--is_train', action='store_true')
-    parser.add_argument('--batch_size', type=int, default=1024)
+    parser.add_argument('--eval_stage', type=EvalStage, choices=list(EvalStage))
+    parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--n_debug_examples', type=int)
     parser.add_argument('--z_size', type=int, default=200)
     parser.add_argument('--rank', type=int, default=100)
     parser.add_argument('--h_sizes', nargs='+', type=int, default=[512, 512])
     parser.add_argument('--beta', type=float, default=1)
     parser.add_argument('--reg_mult', type=float, default=1e-5)
-    parser.add_argument('--lr', type=float, default=1e-4)
-    parser.add_argument('--weight_decay', type=float, default=0.01)
+    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--weight_decay', type=float, default=1e-5)
     parser.add_argument('--alpha', type=float, default=1)
     parser.add_argument('--lr_infer', type=float, default=1e-3)
     parser.add_argument('--n_infer_steps', type=int, default=1000)
-    parser.add_argument('--n_epochs', type=int, default=5)
-    parser.add_argument('--early_stop_ratio', type=float, default=1)
+    parser.add_argument('--n_epochs', type=int, default=200)
+    parser.add_argument('--early_stop_ratio', type=float, default=0.1)
     main(parser.parse_args())
