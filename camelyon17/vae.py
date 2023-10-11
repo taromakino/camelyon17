@@ -336,10 +336,9 @@ class VAE(pl.LightningModule):
                 loss, y_pred, z = self.infer_z(x)
                 self.log('loss', loss, on_step=False, on_epoch=True)
                 self.eval_metric.update(y_pred, y)
-                self.x.append(x.cpu())
+                self.z.append(z.detach().cpu())
                 self.y.append(y.cpu())
                 self.e.append(e.cpu())
-                self.z.append(z.detach().cpu())
 
     def on_test_epoch_end(self):
         if self.task == Task.Q_Z:
