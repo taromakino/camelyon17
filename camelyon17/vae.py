@@ -212,7 +212,7 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, h_sizes, beta, reg_mult, lr, weight_decay, alpha, lr_infer, n_infer_steps):
+    def __init__(self, task, z_size, rank, h_sizes, beta, reg_mult, lr, weight_decay, lr_infer, n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
@@ -221,7 +221,6 @@ class VAE(pl.LightningModule):
         self.reg_mult = reg_mult
         self.lr = lr
         self.weight_decay = weight_decay
-        self.alpha = alpha
         self.lr_infer = lr_infer
         self.n_infer_steps = n_infer_steps
         # q(z_c,z_s|x)
@@ -299,7 +298,7 @@ class VAE(pl.LightningModule):
                 # log p(z|y,e)
                 prior_dist = self.prior(y, e)
                 log_prob_z_ye = prior_dist.log_prob(z)
-                losses.append((-log_prob_x_z - log_prob_y_zc - self.alpha * log_prob_z_ye)[:, None])
+                losses.append((-log_prob_x_z - log_prob_y_zc - log_prob_z_ye)[:, None])
                 y_values.append(y_elem)
         losses = torch.hstack(losses).min(dim=1)
         idxs = losses.indices
