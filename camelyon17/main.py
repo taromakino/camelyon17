@@ -11,7 +11,7 @@ from vae import VAE
 
 def make_data(args):
     batch_size = args.infer_batch_size if args.task == Task.CLASSIFY else args.batch_size
-    data_train, data_val_iid, data_val_ood, data_test = data.make_data(batch_size, args.n_debug_examples)
+    data_train, data_val_iid, data_val_ood, data_test = data.make_data(batch_size, args.n_workers, args.n_debug_examples)
     if args.eval_stage is None:
         data_eval = None
     elif args.eval_stage == EvalStage.TRAIN:
@@ -98,6 +98,7 @@ if __name__ == '__main__':
     parser.add_argument('--eval_stage', type=EvalStage, choices=list(EvalStage))
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--infer_batch_size', type=int, default=1024)
+    parser.add_argument('--n_workers', type=int, default=20)
     parser.add_argument('--n_debug_examples', type=int)
     parser.add_argument('--z_size', type=int, default=200)
     parser.add_argument('--rank', type=int, default=100)
