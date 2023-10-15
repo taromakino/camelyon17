@@ -8,7 +8,7 @@ from data import N_CLASSES, N_ENVS
 from torch.optim import Adam
 from torchmetrics import Accuracy
 from utils.enums import Task
-from utils.nn_utils import MLP, arr_to_tril, arr_to_cov
+from utils.nn_utils import MLP, arr_to_cov
 
 
 CNN_SIZE = 864
@@ -233,12 +233,13 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, h_sizes, x_mult, reg_mult, lr, weight_decay, lr_infer, n_infer_steps):
+    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, reg_mult, lr, weight_decay, lr_infer, n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
         self.z_size = z_size
-        self.x_mult = x_mult
+        self.y_mult = y_mult
+        self.beta = beta
         self.reg_mult = reg_mult
         self.lr = lr
         self.weight_decay = weight_decay
@@ -282,24 +283,27 @@ class VAE(pl.LightningModule):
         prior_dist = self.prior(y, e)
         kl = D.kl_divergence(posterior_dist, prior_dist).mean()
         prior_norm = (prior_dist.loc ** 2).mean()
-        return self.x_mult * log_prob_x_z, log_prob_y_zc, kl, self.reg_mult * prior_norm
+        return log_prob_x_z, log_prob_y_zc, kl, prior_norm
 
     def training_step(self, batch, batch_idx):
         assert self.task == Task.VAE
         x, y, e = batch
         log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
-        loss = -log_prob_x_z - log_prob_y_zc + kl + prior_norm
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
+        self.log('train_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
+        self.log('train_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
+        self.log('train_kl', kl, on_step=False, on_epoch=True)
+        self.log('train_loss', loss, on_step=False, on_epoch=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         assert self.task == Task.VAE
         x, y, e = batch
         log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
-        loss = -log_prob_x_z - log_prob_y_zc + kl + prior_norm
+        loss = -log_prob_x_z - log_prob_y_zc + kl
         self.log('val_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
         self.log('val_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
         self.log('val_kl', kl, on_step=False, on_epoch=True)
-        self.log('val_prior_norm', prior_norm, on_step=False, on_epoch=True)
         self.log('val_loss', loss, on_step=False, on_epoch=True)
 
     def infer_loss(self, x, z):
@@ -316,7 +320,7 @@ class VAE(pl.LightningModule):
         for y_elem in range(N_CLASSES):
             y = torch.full((batch_size,), y_elem, dtype=torch.long, device=self.device)
             log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
-            loss_candidates.append((self.x_mult * -log_prob_x_z - log_prob_y_zc - log_prob_z)[:, None])
+            loss_candidates.append((-log_prob_x_z - self.y_mult * log_prob_y_zc - log_prob_z)[:, None])
             y_candidates.append(y_elem)
         loss_candidates = torch.hstack(loss_candidates).min(dim=1)
         y_candidates = torch.tensor(y_candidates, device=self.device)
