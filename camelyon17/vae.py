@@ -145,9 +145,12 @@ class Encoder(nn.Module):
         self.z_size = z_size
         self.rank = rank
         self.cnn = CNN()
-        self.mu_causal = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * 2 * z_size)
-        self.low_rank_causal = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * 2 * z_size * 2 * rank)
-        self.diag_causal = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * 2 * z_size)
+        self.mu_causal = MLP(CNN_SIZE, h_sizes, N_ENVS * z_size)
+        self.low_rank_causal = MLP(CNN_SIZE, h_sizes, N_ENVS * z_size * rank)
+        self.diag_causal = MLP(CNN_SIZE, h_sizes, N_ENVS * z_size)
+        self.mu_spurious = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
+        self.low_rank_spurious = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size * rank)
+        self.diag_spurious = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
 
     def forward(self, x, y, e):
         batch_size = len(x)
