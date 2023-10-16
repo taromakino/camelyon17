@@ -314,13 +314,13 @@ class VAE(pl.LightningModule):
         z_c, z_s = torch.chunk(z, 2, dim=1)
         y_pred = self.classifier(z_c).view(-1)
         # log q(z)
-        log_prob_z = self.q_z().log_prob(z)
+        z_norm = (z ** 2).mean(dim=1)
         loss_candidates = []
         y_candidates = []
         for y_elem in range(N_CLASSES):
             y = torch.full((batch_size,), y_elem, dtype=torch.long, device=self.device)
             log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
-            loss_candidates.append((-log_prob_x_z - self.y_mult * log_prob_y_zc - log_prob_z)[:, None])
+            loss_candidates.append((-log_prob_x_z - self.y_mult * log_prob_y_zc - self.reg_mult * z_norm)[:, None])
             y_candidates.append(y_elem)
         loss_candidates = torch.hstack(loss_candidates).min(dim=1)
         y_candidates = torch.tensor(y_candidates, device=self.device)

@@ -44,8 +44,8 @@ def make_model(args):
         return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task)
     else:
         assert args.task == Task.CLASSIFY
-        return VAE.load_from_checkpoint(ckpt_fpath(args, Task.Q_Z), task=args.task, lr_infer=args.lr_infer,
-            n_infer_steps=args.n_infer_steps)
+        return VAE.load_from_checkpoint(ckpt_fpath(args, Task.Q_Z), task=args.task, reg_mult=args.reg_mult,
+            lr_infer=args.lr_infer, n_infer_steps=args.n_infer_steps)
 
 
 def main(args):
