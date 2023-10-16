@@ -287,7 +287,7 @@ class VAE(pl.LightningModule):
         # KL(q(z_c,z_s|x) || p(z_c|e)p(z_s|y,e))
         prior_dist = self.prior(y, e)
         kl = D.kl_divergence(posterior_dist, prior_dist).mean()
-        z_norm = (z ** 2).mean()
+        z_norm = (z_c ** 2).mean()
         return log_prob_x_z, log_prob_y_zc, kl, z_norm
 
     def training_step(self, batch, batch_idx):
@@ -318,7 +318,7 @@ class VAE(pl.LightningModule):
         # log p(y|z_c)
         z_c, z_s = torch.chunk(z, 2, dim=1)
         y_pred = self.classifier(z_c).view(-1)
-        z_norm = (z ** 2).mean(dim=1)
+        z_norm = (z_c ** 2).mean(dim=1)
         loss_candidates = []
         y_candidates = []
         for y_elem in range(N_CLASSES):
