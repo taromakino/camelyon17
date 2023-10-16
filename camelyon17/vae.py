@@ -287,14 +287,14 @@ class VAE(pl.LightningModule):
         # KL(q(z_c,z_s|x) || p(z_c|e)p(z_s|y,e))
         prior_dist = self.prior(y, e)
         kl = D.kl_divergence(posterior_dist, prior_dist).mean()
-        z_norm = (z ** 2).mean()
-        return log_prob_x_z, log_prob_y_zc, kl, z_norm
+        prior_norm = (prior_dist.loc ** 2).mean()
+        return log_prob_x_z, log_prob_y_zc, kl, prior_norm
 
     def training_step(self, batch, batch_idx):
         assert self.task == Task.VAE
         x, y, e = batch
-        log_prob_x_z, log_prob_y_zc, kl, z_norm = self.loss(x, y, e)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * z_norm
+        log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
         self.log('train_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
         self.log('train_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
         self.log('train_kl', kl, on_step=False, on_epoch=True)
@@ -304,8 +304,8 @@ class VAE(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         assert self.task == Task.VAE
         x, y, e = batch
-        log_prob_x_z, log_prob_y_zc, kl, z_norm = self.loss(x, y, e)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * z_norm
+        log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
         self.log('val_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
         self.log('val_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
         self.log('val_kl', kl, on_step=False, on_epoch=True)
@@ -318,13 +318,14 @@ class VAE(pl.LightningModule):
         # log p(y|z_c)
         z_c, z_s = torch.chunk(z, 2, dim=1)
         y_pred = self.classifier(z_c).view(-1)
-        z_norm = (z ** 2).mean(dim=1)
+        # log q(z_c)
+        log_prob_zc = self.q_causal().log_prob(z_c)
         loss_candidates = []
         y_candidates = []
         for y_elem in range(N_CLASSES):
             y = torch.full((batch_size,), y_elem, dtype=torch.long, device=self.device)
             log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
-            loss_candidates.append((-log_prob_x_z - self.y_mult * log_prob_y_zc + self.reg_mult * z_norm)[:, None])
+            loss_candidates.append((-log_prob_x_z - self.y_mult * log_prob_y_zc - self.reg_mult * log_prob_zc)[:, None])
             y_candidates.append(y_elem)
         loss_candidates = torch.hstack(loss_candidates).min(dim=1)
         y_candidates = torch.tensor(y_candidates, device=self.device)
