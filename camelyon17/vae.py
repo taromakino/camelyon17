@@ -254,8 +254,10 @@ class VAE(pl.LightningModule):
         # p(y|z)
         self.classifier = MLP(z_size, h_sizes, 1)
         # q(z)
-        self.q_z_mu = nn.Parameter(torch.full((2 * z_size,), torch.nan), requires_grad=False)
-        self.q_z_var = nn.Parameter(torch.full((2 * z_size,), torch.nan), requires_grad=False)
+        self.q_mu_causal = nn.Parameter(torch.full((z_size,), torch.nan), requires_grad=False)
+        self.q_var_causal = nn.Parameter(torch.full((z_size,), torch.nan), requires_grad=False)
+        self.q_mu_spurious = nn.Parameter(torch.full((z_size,), torch.nan), requires_grad=False)
+        self.q_var_spurious = nn.Parameter(torch.full((z_size,), torch.nan), requires_grad=False)
         self.q_z_samples = []
         self.z, self.y, self.e = [], [], []
         self.eval_metric = Accuracy('binary')
@@ -266,8 +268,11 @@ class VAE(pl.LightningModule):
         epsilon = torch.randn(batch_size, z_size, 1).to(self.device)
         return mu + torch.bmm(scale_tril, epsilon).squeeze()
 
-    def q_z(self):
-        return D.MultivariateNormal(self.q_z_mu, covariance_matrix=torch.diag(self.q_z_var))
+    def q_causal(self):
+        return D.MultivariateNormal(self.q_mu_causal, covariance_matrix=torch.diag(self.q_var_causal))
+
+    def q_spurious(self):
+        return D.MultivariateNormal(self.q_mu_spurious, covariance_matrix=torch.diag(self.q_var_spurious))
 
     def loss(self, x, y, e):
         # z_c,z_s ~ q(z_c,z_s|x)
@@ -313,14 +318,14 @@ class VAE(pl.LightningModule):
         # log p(y|z_c)
         z_c, z_s = torch.chunk(z, 2, dim=1)
         y_pred = self.classifier(z_c).view(-1)
-        # log q(z)
-        z_norm = (z ** 2).mean(dim=1)
+        # log q(z_c)
+        log_prob_zc = self.q_causal().log_prob(z_c)
         loss_candidates = []
         y_candidates = []
         for y_elem in range(N_CLASSES):
             y = torch.full((batch_size,), y_elem, dtype=torch.long, device=self.device)
             log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
-            loss_candidates.append((-log_prob_x_z - self.y_mult * log_prob_y_zc + self.reg_mult * z_norm)[:, None])
+            loss_candidates.append((-log_prob_x_z - self.y_mult * log_prob_y_zc - self.reg_mult * log_prob_zc)[:, None])
             y_candidates.append(y_elem)
         loss_candidates = torch.hstack(loss_candidates).min(dim=1)
         y_candidates = torch.tensor(y_candidates, device=self.device)
@@ -330,7 +335,9 @@ class VAE(pl.LightningModule):
 
     def infer_z(self, x):
         batch_size = len(x)
-        z_param = nn.Parameter(torch.repeat_interleave(self.q_z().loc[None], batch_size, dim=0))
+        zc_sample = torch.repeat_interleave(self.q_causal().loc[None], batch_size, dim=0)
+        zs_sample = torch.repeat_interleave(self.q_spurious().loc[None], batch_size, dim=0)
+        z_param = nn.Parameter(torch.hstack((zc_sample, zs_sample)))
         optim = Adam([z_param], lr=self.lr_infer)
         optim_loss = torch.inf
         optim_y_pred = None
@@ -364,8 +371,11 @@ class VAE(pl.LightningModule):
     def on_test_epoch_end(self):
         if self.task == Task.Q_Z:
             z = torch.cat(self.q_z_samples)
-            self.q_z_mu.data = torch.mean(z, 0)
-            self.q_z_var.data = torch.var(z, 0)
+            z_c, z_s = torch.chunk(z, 2, dim=1)
+            self.q_mu_causal.data = torch.mean(z_c, 0)
+            self.q_var_causal.data = torch.var(z_c, 0)
+            self.q_mu_spurious.data = torch.mean(z_s, 0)
+            self.q_var_spurious.data = torch.var(z_s, 0)
         else:
             assert self.task == Task.CLASSIFY
             self.log('eval_metric', self.eval_metric.compute())
