@@ -7,7 +7,7 @@ from data import N_CLASSES, N_ENVS
 from torch.optim import Adam
 from torchmetrics import Accuracy
 from utils.enums import Task
-from utils.nn_utils import MLP, arr_to_cov
+from utils.nn_utils import MLP, arr_to_cov, arr_to_tril
 
 
 CNN_SIZE = 864
@@ -165,6 +165,7 @@ class Encoder(nn.Module):
         diag_causal = diag_causal.reshape(batch_size, N_ENVS, self.z_size)
         diag_causal = diag_causal[torch.arange(batch_size), e, :]
         cov_causal = arr_to_cov(low_rank_causal, diag_causal)
+        causal = D.MultivariateNormal(mu_causal, scale_tril=torch.linalg.cholesky(cov_causal))
         # Spurious
         mu_spurious = self.mu_spurious(x)
         mu_spurious = mu_spurious.reshape(batch_size, N_CLASSES, N_ENVS, self.z_size)
@@ -176,12 +177,14 @@ class Encoder(nn.Module):
         diag_spurious = diag_spurious.reshape(batch_size, N_CLASSES, N_ENVS, self.z_size)
         diag_spurious = diag_spurious[torch.arange(batch_size), y, e, :]
         cov_spurious = arr_to_cov(low_rank_spurious, diag_spurious)
+        spurious = D.MultivariateNormal(mu_spurious, scale_tril=torch.linalg.cholesky(cov_spurious))
         # Block diagonal
         mu = torch.hstack((mu_causal, mu_spurious))
         cov = torch.zeros(batch_size, 2 * self.z_size, 2 * self.z_size, device=y.device)
         cov[:, :self.z_size, :self.z_size] = cov_causal
         cov[:, self.z_size:, self.z_size:] = cov_spurious
-        return D.MultivariateNormal(mu, scale_tril=torch.linalg.cholesky(cov))
+        joint = D.MultivariateNormal(mu, scale_tril=torch.linalg.cholesky(cov))
+        return joint, causal, spurious
 
 
 class Decoder(nn.Module):
@@ -263,7 +266,7 @@ class VAE(pl.LightningModule):
 
     def loss(self, x, y, e):
         # z_c,z_s ~ q(z_c,z_s|x)
-        posterior_dist = self.encoder(x, y, e)
+        posterior_dist, _, _ = self.encoder(x, y, e)
         z = self.sample_z(posterior_dist)
         # E_q(z_c,z_s|x)[log p(x|z_c,z_s)]
         log_prob_x_z = self.decoder(x, z).mean()
@@ -306,15 +309,18 @@ class VAE(pl.LightningModule):
         y_pred = self.classifier(z_c).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
         # log q(z_c,z_s|x,y,e)
-        log_prob_z_xye = self.encoder(x, y, e).log_prob(z)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_z_xye
+        _, causal, spurious = self.encoder(x, y, e)
+        log_prob_zc_xye = causal.log_prob(z_c)
+        log_prob_zs_xye = spurious.log_prob(z_s)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - log_prob_zc_xye - self.alpha * log_prob_zs_xye
         return loss
 
     def make_z_param(self, x, y_value, e_value):
         batch_size = len(x)
         y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
         e = torch.full((batch_size,), e_value, dtype=torch.long, device=self.device)
-        return nn.Parameter(self.encoder(x, y, e).loc.detach())
+        joint, _, _ = self.encoder(x, y, e)
+        return nn.Parameter(joint.loc.detach())
 
     def opt_infer_loss(self, x, y_value, e_value):
         batch_size = len(x)
