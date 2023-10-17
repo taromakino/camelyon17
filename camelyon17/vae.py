@@ -259,7 +259,6 @@ class VAE(pl.LightningModule):
         self.q_mu_spurious = nn.Parameter(torch.full((z_size,), torch.nan), requires_grad=False)
         self.q_var_spurious = nn.Parameter(torch.full((z_size,), torch.nan), requires_grad=False)
         self.q_z_samples = []
-        self.z, self.y, self.e = [], [], []
         self.eval_metric = Accuracy('binary')
 
     def sample_z(self, dist):
@@ -311,47 +310,39 @@ class VAE(pl.LightningModule):
         self.log('val_kl', kl, on_step=False, on_epoch=True)
         self.log('val_loss', loss, on_step=False, on_epoch=True)
 
-    def infer_loss(self, x, z):
-        batch_size = len(x)
+    def infer_loss(self, x, y, z):
         # log p(x|z_c,z_s)
         log_prob_x_z = self.decoder(x, z)
         # log p(y|z_c)
         z_c, z_s = torch.chunk(z, 2, dim=1)
         y_pred = self.classifier(z_c).view(-1)
-        # log q(z_c)
+        log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
+        # log q(z)
         log_prob_zc = self.q_causal().log_prob(z_c)
-        loss_candidates = []
-        y_candidates = []
-        for y_elem in range(N_CLASSES):
-            y = torch.full((batch_size,), y_elem, dtype=torch.long, device=self.device)
-            log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
-            loss_candidates.append((-log_prob_x_z - self.y_mult * log_prob_y_zc - self.reg_mult * log_prob_zc)[:, None])
-            y_candidates.append(y_elem)
-        loss_candidates = torch.hstack(loss_candidates).min(dim=1)
-        y_candidates = torch.tensor(y_candidates, device=self.device)
-        idxs = loss_candidates.indices
-        y_pred = y_candidates[idxs]
-        return loss_candidates.values.mean(), y_pred
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - log_prob_zc
+        return loss
 
-    def infer_z(self, x):
+    def opt_infer_loss(self, x, y):
         batch_size = len(x)
-        zc_sample = torch.repeat_interleave(self.q_causal().loc[None], batch_size, dim=0)
-        zs_sample = torch.repeat_interleave(self.q_spurious().loc[None], batch_size, dim=0)
-        z_param = nn.Parameter(torch.hstack((zc_sample, zs_sample)))
+        z_param = nn.Parameter(torch.repeat_interleave(self.q_z().loc[None], batch_size, dim=0))
+        y = torch.full((batch_size,), y, dtype=torch.long, device=self.device)
         optim = Adam([z_param], lr=self.lr_infer)
-        optim_loss = torch.inf
-        optim_y_pred = None
-        optim_z = None
         for _ in range(self.n_infer_steps):
             optim.zero_grad()
-            loss, y_pred = self.infer_loss(x, z_param)
-            loss.backward()
+            loss = self.infer_loss(x, y, z_param)
+            loss.mean().backward()
             optim.step()
-            if loss < optim_loss:
-                optim_loss = loss
-                optim_y_pred = y_pred
-                optim_z = z_param.clone()
-        return optim_loss, optim_y_pred, optim_z
+        return loss.detach().clone()
+
+    def infer_z(self, x):
+        losses = []
+        for y_elem in range(N_CLASSES):
+            losses.append(self.opt_infer_loss(x, y_elem)[:, None])
+        losses = torch.hstack(losses)
+        losses = losses.min(dim=1)
+        loss = losses.values.mean()
+        y_pred = losses.indices
+        return loss, y_pred
 
     def test_step(self, batch, batch_idx):
         x, y, e = batch
@@ -361,12 +352,9 @@ class VAE(pl.LightningModule):
         else:
             assert self.task == Task.CLASSIFY
             with torch.set_grad_enabled(True):
-                loss, y_pred, z = self.infer_z(x)
+                loss, y_pred = self.infer_z(x)
                 self.log('loss', loss, on_step=False, on_epoch=True)
                 self.eval_metric.update(y_pred, y)
-                self.z.append(z.detach().cpu())
-                self.y.append(y.cpu())
-                self.e.append(e.cpu())
 
     def on_test_epoch_end(self):
         if self.task == Task.Q_Z:
@@ -379,10 +367,6 @@ class VAE(pl.LightningModule):
         else:
             assert self.task == Task.CLASSIFY
             self.log('eval_metric', self.eval_metric.compute())
-            z = torch.cat(self.z)
-            y = torch.cat(self.y)
-            e = torch.cat(self.e)
-            torch.save((z, y, e), os.path.join(self.trainer.log_dir, f'version_{self.trainer.logger.version}', 'infer.pt'))
 
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
