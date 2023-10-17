@@ -39,12 +39,10 @@ def make_model(args):
             return ERM_X.load_from_checkpoint(ckpt_fpath(args, args.task))
     elif args.task == Task.VAE:
         return VAE(args.task, args.z_size, args.rank, args.h_sizes, args.y_mult, args.beta, args.reg_mult, args.lr,
-            args.weight_decay, args.lr_infer, args.n_infer_steps)
-    elif args.task == Task.Q_Z:
-        return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task)
+            args.weight_decay, args.alpha, args.lr_infer, args.n_infer_steps)
     else:
         assert args.task == Task.CLASSIFY
-        return VAE.load_from_checkpoint(ckpt_fpath(args, Task.Q_Z), task=args.task, reg_mult=args.reg_mult,
+        return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task, reg_mult=args.reg_mult,
             lr_infer=args.lr_infer, n_infer_steps=args.n_infer_steps)
 
 
@@ -73,13 +71,6 @@ def main(args):
                 ModelCheckpoint(monitor='val_loss', filename='best')],
             max_epochs=args.n_epochs)
         trainer.fit(model, data_train, data_val_iid)
-    elif args.task == Task.Q_Z:
-        trainer = pl.Trainer(
-            logger=CSVLogger(os.path.join(args.dpath, args.task.value), name='',
-                version=args.seed),
-            max_epochs=1)
-        trainer.test(model, data_train)
-        trainer.save_checkpoint(ckpt_fpath(args, args.task))
     else:
         assert args.task == Task.CLASSIFY
         trainer = pl.Trainer(
@@ -108,6 +99,7 @@ if __name__ == '__main__':
     parser.add_argument('--reg_mult', type=float, default=1e-5)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--weight_decay', type=float, default=1e-5)
+    parser.add_argument('--alpha', type=float, default=1)
     parser.add_argument('--lr_infer', type=float, default=1)
     parser.add_argument('--n_infer_steps', type=int, default=200)
     parser.add_argument('--n_epochs', type=int, default=100)

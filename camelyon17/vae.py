@@ -1,4 +1,3 @@
-import os
 import pytorch_lightning as pl
 import torch
 import torch.distributions as D
@@ -233,7 +232,7 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, reg_mult, lr, weight_decay, lr_infer, n_infer_steps):
+    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, reg_mult, lr, weight_decay, alpha, lr_infer, n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
@@ -243,6 +242,7 @@ class VAE(pl.LightningModule):
         self.reg_mult = reg_mult
         self.lr = lr
         self.weight_decay = weight_decay
+        self.alpha = alpha
         self.lr_infer = lr_infer
         self.n_infer_steps = n_infer_steps
         # q(z_c,z_s|x)
@@ -253,12 +253,6 @@ class VAE(pl.LightningModule):
         self.prior = Prior(z_size, rank)
         # p(y|z)
         self.classifier = MLP(z_size, h_sizes, 1)
-        # q(z)
-        self.q_mu_causal = nn.Parameter(torch.full((z_size,), torch.nan), requires_grad=False)
-        self.q_var_causal = nn.Parameter(torch.full((z_size,), torch.nan), requires_grad=False)
-        self.q_mu_spurious = nn.Parameter(torch.full((z_size,), torch.nan), requires_grad=False)
-        self.q_var_spurious = nn.Parameter(torch.full((z_size,), torch.nan), requires_grad=False)
-        self.q_z_samples = []
         self.eval_metric = Accuracy('binary')
 
     def sample_z(self, dist):
@@ -266,12 +260,6 @@ class VAE(pl.LightningModule):
         batch_size, z_size = mu.shape
         epsilon = torch.randn(batch_size, z_size, 1).to(self.device)
         return mu + torch.bmm(scale_tril, epsilon).squeeze()
-
-    def q_causal(self):
-        return D.MultivariateNormal(self.q_mu_causal, covariance_matrix=torch.diag(self.q_var_causal))
-
-    def q_spurious(self):
-        return D.MultivariateNormal(self.q_mu_spurious, covariance_matrix=torch.diag(self.q_var_spurious))
 
     def loss(self, x, y, e):
         # z_c,z_s ~ q(z_c,z_s|x)
@@ -310,65 +298,62 @@ class VAE(pl.LightningModule):
         self.log('val_kl', kl, on_step=False, on_epoch=True)
         self.log('val_loss', loss, on_step=False, on_epoch=True)
 
-    def infer_loss(self, x, y, z):
+    def infer_loss(self, x, y, e, z):
         # log p(x|z_c,z_s)
         log_prob_x_z = self.decoder(x, z)
         # log p(y|z_c)
         z_c, z_s = torch.chunk(z, 2, dim=1)
         y_pred = self.classifier(z_c).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
-        # log q(z)
-        log_prob_zc = self.q_causal().log_prob(z_c)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - log_prob_zc
+        # log q(z_c,z_s|x,y,e)
+        log_prob_z_xye = self.encoder(x, y, e).log_prob(z)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_z_xye
         return loss
 
-    def opt_infer_loss(self, x, y):
+    def make_z_param(self, x, y_value, e_value):
         batch_size = len(x)
-        zc_sample = torch.repeat_interleave(self.q_causal().loc[None], batch_size, dim=0)
-        zs_sample = torch.repeat_interleave(self.q_spurious().loc[None], batch_size, dim=0)
-        z_param = nn.Parameter(torch.hstack((zc_sample, zs_sample)))
-        y = torch.full((batch_size,), y, dtype=torch.long, device=self.device)
+        y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
+        e = torch.full((batch_size,), e_value, dtype=torch.long, device=self.device)
+        return nn.Parameter(self.encoder(x, y, e).loc.detach())
+
+    def opt_infer_loss(self, x, y_value, e_value):
+        batch_size = len(x)
+        z_param = self.make_z_param(x, y_value, e_value)
+        y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
+        e = torch.full((batch_size,), e_value, dtype=torch.long, device=self.device)
         optim = Adam([z_param], lr=self.lr_infer)
         for _ in range(self.n_infer_steps):
             optim.zero_grad()
-            loss = self.infer_loss(x, y, z_param)
+            loss = self.infer_loss(x, y, e, z_param)
             loss.mean().backward()
             optim.step()
         return loss.detach().clone()
 
     def infer_z(self, x):
-        losses = []
-        for y_elem in range(N_CLASSES):
-            losses.append(self.opt_infer_loss(x, y_elem)[:, None])
-        losses = torch.hstack(losses)
-        losses = losses.min(dim=1)
-        loss = losses.values.mean()
-        y_pred = losses.indices
-        return loss, y_pred
+        loss_candidates = []
+        y_candidates = []
+        for y_value in range(N_CLASSES):
+            for e_value in range(N_ENVS):
+                loss_candidates.append(self.opt_infer_loss(x, y_value, e_value)[:, None])
+                y_candidates.append(y_value)
+        loss_candidates = torch.hstack(loss_candidates)
+        y_candidates = torch.tensor(y_candidates)
+        opt_loss = loss_candidates.min(dim=1)
+        opt_idxs = loss_candidates.indices
+        y_pred = y_candidates[opt_idxs]
+        return opt_loss.values.mean(), y_pred
 
     def test_step(self, batch, batch_idx):
+        assert self.task == Task.CLASSIFY
         x, y, e = batch
-        if self.task == Task.Q_Z:
-            z = self.encoder(x, y, e).loc
-            self.q_z_samples.append(z.detach().cpu())
-        else:
-            assert self.task == Task.CLASSIFY
-            with torch.set_grad_enabled(True):
-                loss, y_pred = self.infer_z(x)
-                self.log('loss', loss, on_step=False, on_epoch=True)
-                self.eval_metric.update(y_pred, y)
+        with torch.set_grad_enabled(True):
+            loss, y_pred = self.infer_z(x)
+            self.log('loss', loss, on_step=False, on_epoch=True)
+            self.eval_metric.update(y_pred, y)
 
     def on_test_epoch_end(self):
-        if self.task == Task.Q_Z:
-            z = torch.cat(self.q_z_samples)
-            z_c, z_s = torch.chunk(z, 2, dim=1)
-            self.q_mu_causal.data = torch.mean(z_c, 0)
-            self.q_var_causal.data = torch.var(z_c, 0)
-            self.q_mu_spurious.data = torch.mean(z_s, 0)
-            self.q_var_spurious.data = torch.var(z_s, 0)
-        else:
-            assert self.task == Task.CLASSIFY
-            self.log('eval_metric', self.eval_metric.compute())
+        assert self.task == Task.CLASSIFY
+        self.log('eval_metric', self.eval_metric.compute())
 
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
