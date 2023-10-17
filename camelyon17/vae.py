@@ -339,8 +339,7 @@ class VAE(pl.LightningModule):
         loss_candidates = torch.hstack(loss_candidates)
         y_candidates = torch.tensor(y_candidates, device=self.device)
         opt_loss = loss_candidates.min(dim=1)
-        opt_idxs = loss_candidates.indices
-        y_pred = y_candidates[opt_idxs]
+        y_pred = y_candidates[opt_loss.indices]
         return opt_loss.values.mean(), y_pred
 
     def test_step(self, batch, batch_idx):
