@@ -337,7 +337,7 @@ class VAE(pl.LightningModule):
                 loss_candidates.append(self.opt_infer_loss(x, y_value, e_value)[:, None])
                 y_candidates.append(y_value)
         loss_candidates = torch.hstack(loss_candidates)
-        y_candidates = torch.tensor(y_candidates)
+        y_candidates = torch.tensor(y_candidates, device=self.device)
         opt_loss = loss_candidates.min(dim=1)
         opt_idxs = loss_candidates.indices
         y_pred = y_candidates[opt_idxs]
