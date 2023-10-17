@@ -324,7 +324,9 @@ class VAE(pl.LightningModule):
 
     def opt_infer_loss(self, x, y):
         batch_size = len(x)
-        z_param = nn.Parameter(torch.repeat_interleave(self.q_z().loc[None], batch_size, dim=0))
+        zc_sample = torch.repeat_interleave(self.q_causal().loc[None], batch_size, dim=0)
+        zs_sample = torch.repeat_interleave(self.q_spurious().loc[None], batch_size, dim=0)
+        z_param = nn.Parameter(torch.hstack((zc_sample, zs_sample)))
         y = torch.full((batch_size,), y, dtype=torch.long, device=self.device)
         optim = Adam([z_param], lr=self.lr_infer)
         for _ in range(self.n_infer_steps):
