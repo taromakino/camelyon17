@@ -309,11 +309,12 @@ class VAE(pl.LightningModule):
         y_pred = self.classifier(z_c).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
         # log q(z_c,z_s|x,y,e)
-        joint, _, _ = self.encoder(x, y, e)
-        log_prob_z_posterior = joint.log_prob(z)
-        log_prob_z_standard_normal = standard_normal.log_prob(z)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_z_posterior - (1 - self.alpha) * \
-            log_prob_z_standard_normal
+        _, causal, spurious = self.encoder(x, y, e)
+        log_prob_zc = causal.log_prob(z_c)
+        log_prob_zs = spurious.log_prob(z_s)
+        log_prob_standard_normal = standard_normal.log_prob(z_s)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - log_prob_zc - self.alpha * log_prob_zs - (1 - self.alpha) * \
+            log_prob_standard_normal
         return loss
 
     def make_z_param(self, x, y_value, e_value):
@@ -328,7 +329,7 @@ class VAE(pl.LightningModule):
         z_param = self.make_z_param(x, y_value, e_value)
         y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
         e = torch.full((batch_size,), e_value, dtype=torch.long, device=self.device)
-        standard_normal = D.MultivariateNormal(torch.zeros(2 * self.z_size, device=self.device), torch.eye(2 * self.z_size,
+        standard_normal = D.MultivariateNormal(torch.zeros(self.z_size, device=self.device), torch.eye(self.z_size,
             device=self.device))
         optim = Adam([z_param], lr=self.lr_infer)
         for _ in range(self.n_infer_steps):
