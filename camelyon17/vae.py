@@ -328,7 +328,7 @@ class VAE(pl.LightningModule):
         z_param = self.make_z_param(x, y_value, e_value)
         y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
         e = torch.full((batch_size,), e_value, dtype=torch.long, device=self.device)
-        standard_normal = D.MultivariateNormal(torch.zeros(self.z_size, device=self.device), torch.eye(self.z_size,
+        standard_normal = D.MultivariateNormal(torch.zeros(2 * self.z_size, device=self.device), torch.eye(2 * self.z_size,
             device=self.device))
         optim = Adam([z_param], lr=self.lr_infer)
         for _ in range(self.n_infer_steps):
