@@ -311,7 +311,7 @@ class VAE(pl.LightningModule):
         # log q(z_c,z_s|x,y,e)
         joint, _, _ = self.encoder(x, y, e)
         log_prob_posterior = joint.log_prob(z).mean()
-        loss = self.alpha * (-log_prob_x_z - self.y_mult * log_prob_y_zc) - (1 - self.alpha) * log_prob_posterior
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_posterior
         return loss
 
     def make_z_param(self, x, y_value, e_value):
