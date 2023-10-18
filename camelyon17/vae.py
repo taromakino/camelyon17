@@ -301,7 +301,7 @@ class VAE(pl.LightningModule):
         self.log('val_kl', kl, on_step=False, on_epoch=True)
         self.log('val_loss', loss, on_step=False, on_epoch=True)
 
-    def infer_loss(self, x, y, e, z, standard_normal):
+    def infer_loss(self, x, y, e, z):
         # log p(x|z_c,z_s)
         log_prob_x_z = self.decoder(x, z)
         # log p(y|z_c)
@@ -326,12 +326,10 @@ class VAE(pl.LightningModule):
         z_param = self.make_z_param(x, y_value, e_value)
         y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
         e = torch.full((batch_size,), e_value, dtype=torch.long, device=self.device)
-        standard_normal = D.MultivariateNormal(torch.zeros(self.z_size, device=self.device), torch.eye(self.z_size,
-            device=self.device))
         optim = Adam([z_param], lr=self.lr_infer)
         for _ in range(self.n_infer_steps):
             optim.zero_grad()
-            loss = self.infer_loss(x, y, e, z_param, standard_normal)
+            loss = self.infer_loss(x, y, e, z_param)
             loss.mean().backward()
             optim.step()
         return loss.detach().clone()
