@@ -312,7 +312,7 @@ class VAE(pl.LightningModule):
         _, causal_dist, spurious_dist = self.encoder(x, y, e)
         log_prob_zc = causal_dist.log_prob(z_c)
         log_prob_zs = spurious_dist.log_prob(z_s)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_zc - log_prob_zs
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - log_prob_zc - self.alpha * log_prob_zs
         return loss
 
     def make_z_param(self, x, y_value, e_value):
