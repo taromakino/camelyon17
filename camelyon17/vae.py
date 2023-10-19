@@ -309,9 +309,10 @@ class VAE(pl.LightningModule):
         y_pred = self.classifier(z_c).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
         # log q(z_c,z_s|x,y,e)
-        joint, causal, spurious = self.encoder(x, y, e)
+        _, causal, spurious = self.encoder(x, y, e)
         log_prob_zc = causal.log_prob(z_c)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_zc
+        log_prob_zs = spurious.log_prob(z_s)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - log_prob_zc - self.alpha * log_prob_zs
         return loss
 
     def make_z_param(self, x, y_value, e_value):
