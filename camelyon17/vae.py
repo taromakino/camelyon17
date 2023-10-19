@@ -11,7 +11,7 @@ from utils.nn_utils import MLP, arr_to_cov, arr_to_tril
 
 
 CNN_SIZE = 864
-PRIOR_INIT_SD = 0.01
+PRIOR_INIT_SD = 0.1
 
 
 class DenseLayer(nn.Module):
@@ -165,7 +165,7 @@ class Encoder(nn.Module):
         diag_causal = diag_causal.reshape(batch_size, N_ENVS, self.z_size)
         diag_causal = diag_causal[torch.arange(batch_size), e, :]
         cov_causal = arr_to_cov(low_rank_causal, diag_causal)
-        causal = D.MultivariateNormal(mu_causal, scale_tril=torch.linalg.cholesky(cov_causal))
+        causal_dist = D.MultivariateNormal(mu_causal, scale_tril=torch.linalg.cholesky(cov_causal))
         # Spurious
         mu_spurious = self.mu_spurious(x)
         mu_spurious = mu_spurious.reshape(batch_size, N_CLASSES, N_ENVS, self.z_size)
@@ -177,14 +177,14 @@ class Encoder(nn.Module):
         diag_spurious = diag_spurious.reshape(batch_size, N_CLASSES, N_ENVS, self.z_size)
         diag_spurious = diag_spurious[torch.arange(batch_size), y, e, :]
         cov_spurious = arr_to_cov(low_rank_spurious, diag_spurious)
-        spurious = D.MultivariateNormal(mu_spurious, scale_tril=torch.linalg.cholesky(cov_spurious))
+        spurious_dist = D.MultivariateNormal(mu_spurious, scale_tril=torch.linalg.cholesky(cov_spurious))
         # Block diagonal
         mu = torch.hstack((mu_causal, mu_spurious))
         cov = torch.zeros(batch_size, 2 * self.z_size, 2 * self.z_size, device=y.device)
         cov[:, :self.z_size, :self.z_size] = cov_causal
         cov[:, self.z_size:, self.z_size:] = cov_spurious
-        joint = D.MultivariateNormal(mu, scale_tril=torch.linalg.cholesky(cov))
-        return joint, causal, spurious
+        joint_dist = D.MultivariateNormal(mu, scale_tril=torch.linalg.cholesky(cov))
+        return joint_dist, causal_dist, spurious_dist
 
 
 class Decoder(nn.Module):
@@ -309,9 +309,10 @@ class VAE(pl.LightningModule):
         y_pred = self.classifier(z_c).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
         # log q(z_c,z_s|x,y,e)
-        joint, _, _ = self.encoder(x, y, e)
-        log_prob_posterior = joint.log_prob(z)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_posterior
+        _, causal_dist, spurious_dist = self.encoder(x, y, e)
+        log_prob_zc = causal_dist.log_prob(z_c)
+        log_prob_zs = spurious_dist.log_prob(z_s)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_zc - log_prob_zs
         return loss
 
     def make_z_param(self, x, y_value, e_value):
