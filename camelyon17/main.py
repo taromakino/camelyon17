@@ -57,11 +57,15 @@ def main(args):
                 callbacks=[
                     EarlyStopping(monitor='val_metric', mode='max', patience=int(args.early_stop_ratio * args.n_epochs)),
                     ModelCheckpoint(monitor='val_metric', mode='max', filename='best')],
-                max_epochs=args.n_epochs)
+                max_epochs=args.n_epochs,
+                deterministic=True)
             trainer.fit(model, data_train, data_val_ood)
         else:
-            trainer = pl.Trainer(logger=CSVLogger(os.path.join(args.dpath, args.task.value, args.eval_stage.value),
-                name='', version=args.seed), max_epochs=1)
+            trainer = pl.Trainer(
+                logger=CSVLogger(os.path.join(args.dpath, args.task.value, args.eval_stage.value), name='',
+                    version=args.seed),
+                max_epochs=1,
+                deterministic=True)
             trainer.test(model, data_eval)
     elif args.task == Task.VAE:
         trainer = pl.Trainer(
@@ -69,7 +73,8 @@ def main(args):
             callbacks=[
                 EarlyStopping(monitor='val_loss', patience=int(args.early_stop_ratio * args.n_epochs)),
                 ModelCheckpoint(monitor='val_loss', filename='best')],
-            max_epochs=args.n_epochs)
+            max_epochs=args.n_epochs,
+            deterministic=True)
         trainer.fit(model, data_train, data_val_iid)
     else:
         assert args.task == Task.CLASSIFY
@@ -77,6 +82,7 @@ def main(args):
             logger=CSVLogger(os.path.join(args.dpath, args.task.value, f'alpha={args.alpha}', args.eval_stage.value),
                 name='', version=args.seed),
             max_epochs=1,
+            deterministic=True,
             inference_mode=False)
         trainer.test(model, data_eval)
 
