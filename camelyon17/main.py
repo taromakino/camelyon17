@@ -48,7 +48,7 @@ def make_model(args):
 
 def main(args):
     pl.seed_everything(args.seed)
-    data_train, data_val_iid, data_val_ood, data_test, data_eval = make_data(args)
+    data_train, data_val_id, data_val_ood, data_test, data_eval = make_data(args)
     model = make_model(args)
     if args.task == Task.ERM_X:
         if args.eval_stage is None:
@@ -75,7 +75,7 @@ def main(args):
                 ModelCheckpoint(monitor='val_loss', filename='best')],
             max_epochs=args.n_epochs,
             deterministic=True)
-        trainer.fit(model, data_train, data_val_ood)
+        trainer.fit(model, data_train, data_val_id)
     else:
         assert args.task == Task.CLASSIFY
         trainer = pl.Trainer(
