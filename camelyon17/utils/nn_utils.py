@@ -15,6 +15,7 @@ class MLP(nn.Module):
         for hidden_dim in x_sizes:
             module_list.append(nn.Linear(last_in_dim, hidden_dim))
             module_list.append(nn.LeakyReLU())
+            module_list.append(nn.BatchNorm1d())
             last_in_dim = hidden_dim
         module_list.append(nn.Linear(last_in_dim, output_size))
         self.module_list = nn.Sequential(*module_list)
