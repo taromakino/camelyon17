@@ -7,11 +7,10 @@ from data import N_CLASSES, N_ENVS
 from torch.optim import Adam
 from torchmetrics import Accuracy
 from utils.enums import Task
-from utils.nn_utils import MLP, arr_to_cov
+from utils.nn_utils import MLP, arr_to_cov, one_hot
 
 
 CNN_SIZE = 864
-PRIOR_INIT_SD = 0.01
 
 
 class DenseLayer(nn.Module):
@@ -144,37 +143,29 @@ class Encoder(nn.Module):
         self.z_size = z_size
         self.rank = rank
         self.cnn = CNN()
-        self.mu_causal = MLP(CNN_SIZE, h_sizes, N_ENVS * z_size)
-        self.low_rank_causal = MLP(CNN_SIZE, h_sizes, N_ENVS * z_size * rank)
-        self.diag_causal = MLP(CNN_SIZE, h_sizes, N_ENVS * z_size)
-        self.mu_spurious = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
-        self.low_rank_spurious = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size * rank)
-        self.diag_spurious = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
+        self.mu_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size)
+        self.low_rank_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size * rank)
+        self.diag_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size)
+        self.mu_spurious = MLP(CNN_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.low_rank_spurious = MLP(CNN_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size * rank)
+        self.diag_spurious = MLP(CNN_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
 
     def forward(self, x, y, e):
         batch_size = len(x)
         x = self.cnn(x).view(batch_size, -1)
+        y_one_hot = one_hot(y, N_CLASSES)
+        e_one_hot = one_hot(e, N_ENVS)
         # Causal
-        mu_causal = self.mu_causal(x)
-        mu_causal = mu_causal.reshape(batch_size, N_ENVS, self.z_size)
-        mu_causal = mu_causal[torch.arange(batch_size), e, :]
-        low_rank_causal = self.low_rank_causal(x)
-        low_rank_causal = low_rank_causal.reshape(batch_size, N_ENVS, self.z_size, self.rank)
-        low_rank_causal = low_rank_causal[torch.arange(batch_size), e, :]
-        diag_causal = self.diag_causal(x)
-        diag_causal = diag_causal.reshape(batch_size, N_ENVS, self.z_size)
-        diag_causal = diag_causal[torch.arange(batch_size), e, :]
+        mu_causal = self.mu_causal(x, e_one_hot)
+        low_rank_causal = self.low_rank_causal(x, e_one_hot)
+        low_rank_causal = low_rank_causal.reshape(batch_size, self.z_size, self.rank)
+        diag_causal = self.diag_causal(x, e_one_hot)
         cov_causal = arr_to_cov(low_rank_causal, diag_causal)
         # Spurious
-        mu_spurious = self.mu_spurious(x)
-        mu_spurious = mu_spurious.reshape(batch_size, N_CLASSES, N_ENVS, self.z_size)
-        mu_spurious = mu_spurious[torch.arange(batch_size), y, e, :]
-        low_rank_spurious = self.low_rank_spurious(x)
-        low_rank_spurious = low_rank_spurious.reshape(batch_size, N_CLASSES, N_ENVS, self.z_size, self.rank)
-        low_rank_spurious = low_rank_spurious[torch.arange(batch_size), y, e, :]
-        diag_spurious = self.diag_spurious(x)
-        diag_spurious = diag_spurious.reshape(batch_size, N_CLASSES, N_ENVS, self.z_size)
-        diag_spurious = diag_spurious[torch.arange(batch_size), y, e, :]
+        mu_spurious = self.mu_spurious(x, y_one_hot, e_one_hot)
+        low_rank_spurious = self.low_rank_spurious(x, y_one_hot, e_one_hot)
+        low_rank_spurious = low_rank_spurious.reshape(batch_size, self.z_size, self.rank)
+        diag_spurious = self.diag_spurious(x, y_one_hot, e_one_hot)
         cov_spurious = arr_to_cov(low_rank_spurious, diag_spurious)
         # Block diagonal
         mu = torch.hstack((mu_causal, mu_spurious))
@@ -198,31 +189,34 @@ class Decoder(nn.Module):
 
 
 class Prior(nn.Module):
-    def __init__(self, z_size, rank):
+    def __init__(self, z_size, rank, h_sizes):
         super().__init__()
         self.z_size = z_size
-        self.mu_causal = nn.Parameter(torch.zeros(N_ENVS, z_size))
-        self.low_rank_causal = nn.Parameter(torch.zeros(N_ENVS, z_size, rank))
-        self.diag_causal = nn.Parameter(torch.zeros(N_ENVS, z_size))
-        nn.init.normal_(self.mu_causal, 0, PRIOR_INIT_SD)
-        nn.init.normal_(self.low_rank_causal, 0, PRIOR_INIT_SD)
-        nn.init.normal_(self.diag_causal, 0, PRIOR_INIT_SD)
+        self.rank = rank
+        self.mu_causal = MLP(N_ENVS, h_sizes, z_size)
+        self.low_rank_causal = MLP(N_ENVS, h_sizes, z_size * rank)
+        self.diag_causal = MLP(N_ENVS, h_sizes, z_size)
         # p(z_s|y,e)
-        self.mu_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size))
-        self.low_rank_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size, rank))
-        self.diag_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size))
-        nn.init.normal_(self.mu_spurious, 0, PRIOR_INIT_SD)
-        nn.init.normal_(self.low_rank_spurious, 0, PRIOR_INIT_SD)
-        nn.init.normal_(self.diag_spurious, 0, PRIOR_INIT_SD)
+        self.mu_spurious = MLP(N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.low_rank_spurious = MLP(N_CLASSES + N_ENVS, h_sizes, z_size * rank)
+        self.diag_spurious = MLP(N_CLASSES + N_ENVS, h_sizes, z_size)
 
     def forward(self, y, e):
         batch_size = len(y)
+        y_one_hot = one_hot(y, N_CLASSES)
+        e_one_hot = one_hot(e, N_ENVS)
         # Causal
-        mu_causal = self.mu_causal[e]
-        cov_causal = arr_to_cov(self.low_rank_causal[e], self.diag_causal[e])
+        mu_causal = self.mu_causal(e_one_hot)
+        low_rank_causal = self.low_rank_causal(e_one_hot)
+        low_rank_causal = low_rank_causal.reshape(batch_size, self.z_size, self.rank)
+        diag_causal = self.diag_causal(e_one_hot)
+        cov_causal = arr_to_cov(low_rank_causal, diag_causal)
         # Spurious
-        mu_spurious = self.mu_spurious[y, e]
-        cov_spurious = arr_to_cov(self.low_rank_spurious[y, e], self.diag_spurious[y, e])
+        mu_spurious = self.mu_spurious(y_one_hot, e_one_hot)
+        low_rank_spurious = self.low_rank_spurious(y_one_hot, e_one_hot)
+        low_rank_spurious = low_rank_spurious.reshape(batch_size, self.z_size, self.rank)
+        diag_spurious = self.diag_spurious(y_one_hot, e_one_hot)
+        cov_spurious = arr_to_cov(low_rank_spurious, diag_spurious)
         # Block diagonal
         mu = torch.hstack((mu_causal, mu_spurious))
         cov = torch.zeros(batch_size, 2 * self.z_size, 2 * self.z_size, device=y.device)
@@ -250,7 +244,7 @@ class VAE(pl.LightningModule):
         # p(x|z_c, z_s)
         self.decoder = Decoder(z_size, h_sizes)
         # p(z_c,z_s|y,e)
-        self.prior = Prior(z_size, rank)
+        self.prior = Prior(z_size, rank, h_sizes)
         # p(y|z)
         self.classifier = MLP(z_size, h_sizes, 1)
         self.eval_metric = Accuracy('binary')
