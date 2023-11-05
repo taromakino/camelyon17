@@ -3,130 +3,258 @@ import torch
 import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint as cp
+from collections import OrderedDict
 from data import N_CLASSES, N_ENVS
+from torch import Tensor
 from torch.optim import Adam
 from torchmetrics import Accuracy
+from typing import List, Tuple
 from utils.enums import Task
 from utils.nn_utils import MLP, arr_to_cov, one_hot
 
 
-CNN_SIZE = 48 * 6 * 6
+CNN_SIZE = 96 * 3 * 3
 
 
-class DenseLayer(nn.Module):
-    def __init__(self, in_channels, growth_rate, mode='encode'):
-        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
-        super(DenseLayer, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_channels)
-        if mode == 'encode':
-            self.conv1 = nn.Conv2d(in_channels, 4 * growth_rate, 1, 1, 0)
-            self.conv2 = nn.Conv2d(4 * growth_rate, growth_rate, 3, 1, 1)
-        elif mode == 'decode':
-            self.conv1 = nn.ConvTranspose2d(in_channels, 4 * growth_rate, 1, 1, 0)
-            self.conv2 = nn.ConvTranspose2d(4 * growth_rate, growth_rate, 3, 1, 1)
-        self.bn2 = nn.BatchNorm2d(4 * growth_rate)
+class _DenseLayer(nn.Module):
+    def __init__(
+        self, num_input_features: int, growth_rate: int, bn_size: int, drop_rate: float, memory_efficient: bool = False,
+        is_encoder: bool = True
+    ) -> None:
+        super().__init__()
+        self.norm1 = nn.BatchNorm2d(num_input_features)
+        self.relu1 = nn.ReLU(inplace=True)
+        if is_encoder:
+            self.conv1 = nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)
+            self.conv2 = nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)
+        else:
+            self.conv1 = nn.ConvTranspose2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)
+            self.conv2 = nn.ConvTranspose2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)
+        self.norm2 = nn.BatchNorm2d(bn_size * growth_rate)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.drop_rate = float(drop_rate)
+        self.memory_efficient = memory_efficient
 
-    def forward(self, x):
-        out = self.bn1(x)
-        out = torch.relu(out)
-        out = self.conv1(out)
-        out = self.bn2(out)
-        out = torch.relu(out)
-        out = self.conv2(out)
-        return torch.cat([x, out], dim=1)
+    def bn_function(self, inputs: List[Tensor]) -> Tensor:
+        concated_features = torch.cat(inputs, 1)
+        bottleneck_output = self.conv1(self.relu1(self.norm1(concated_features)))  # noqa: T484
+        return bottleneck_output
+
+    # todo: rewrite when torchscript supports any
+    def any_requires_grad(self, input: List[Tensor]) -> bool:
+        for tensor in input:
+            if tensor.requires_grad:
+                return True
+        return False
+
+    @torch.jit.unused  # noqa: T484
+    def call_checkpoint_bottleneck(self, input: List[Tensor]) -> Tensor:
+        def closure(*inputs):
+            return self.bn_function(inputs)
+
+        return cp.checkpoint(closure, *input)
+
+    @torch.jit._overload_method  # noqa: F811
+    def forward(self, input: List[Tensor]) -> Tensor:  # noqa: F811
+        pass
+
+    @torch.jit._overload_method  # noqa: F811
+    def forward(self, input: Tensor) -> Tensor:  # noqa: F811
+        pass
+
+    # torchscript does not yet support *args, so we overload method
+    # allowing it to take either a List[Tensor] or single Tensor
+    def forward(self, input: Tensor) -> Tensor:  # noqa: F811
+        if isinstance(input, Tensor):
+            prev_features = [input]
+        else:
+            prev_features = input
+
+        if self.memory_efficient and self.any_requires_grad(prev_features):
+            if torch.jit.is_scripting():
+                raise Exception("Memory Efficient not supported in JIT")
+
+            bottleneck_output = self.call_checkpoint_bottleneck(prev_features)
+        else:
+            bottleneck_output = self.bn_function(prev_features)
+
+        new_features = self.conv2(self.relu2(self.norm2(bottleneck_output)))
+        if self.drop_rate > 0:
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
+        return new_features
 
 
-class DenseBlock(nn.Module):
-    def __init__(self, in_channels, growth_rate, mode='encode'):
-        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
-        super(DenseBlock, self).__init__()
-        self.layer1 = DenseLayer(in_channels + (growth_rate * 0), growth_rate, mode)
-        self.layer2 = DenseLayer(in_channels + (growth_rate * 1), growth_rate, mode)
-        self.layer3 = DenseLayer(in_channels + (growth_rate * 2), growth_rate, mode)
+class _DenseBlock(nn.ModuleDict):
+    _version = 2
 
-    def forward(self, x):
-        out = self.layer1(x)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        return out
+    def __init__(
+        self,
+        num_layers: int,
+        num_input_features: int,
+        bn_size: int,
+        growth_rate: int,
+        drop_rate: float,
+        memory_efficient: bool = False,
+        is_encoder: bool = True
+    ) -> None:
+        super().__init__()
+        for i in range(num_layers):
+            layer = _DenseLayer(
+                num_input_features + i * growth_rate,
+                growth_rate=growth_rate,
+                bn_size=bn_size,
+                drop_rate=drop_rate,
+                memory_efficient=memory_efficient,
+                is_encoder=is_encoder
+            )
+            self.add_module("denselayer%d" % (i + 1), layer)
+
+    def forward(self, init_features: Tensor) -> Tensor:
+        features = [init_features]
+        for name, layer in self.items():
+            new_features = layer(features)
+            features.append(new_features)
+        return torch.cat(features, 1)
 
 
-class TransitionBlock(nn.Module):
-    def __init__(self, in_channels, c_rate, mode='encode'):
-        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
-        super(TransitionBlock, self).__init__()
-        out_channels = int(c_rate * in_channels)
-        self.bn = nn.BatchNorm2d(in_channels)
-        if mode == 'encode':
-            self.conv = nn.Conv2d(in_channels, out_channels, 1, 1, 0)
-            self.resize_layer = nn.AvgPool2d(2, 2)
-        elif mode == 'decode':
-            self.conv = nn.ConvTranspose2d(in_channels, out_channels, 1, 1, 0)
-            self.resize_layer = nn.ConvTranspose2d(out_channels, out_channels, 2, 2, 0)
-
-    def forward(self, x):
-        out = self.bn(x)
-        out = torch.relu(out)
-        out = self.conv(out)
-        out = self.resize_layer(out)
-        return out
+class _Transition(nn.Sequential):
+    def __init__(self, num_input_features: int, num_output_features: int, is_encoder: bool = True) -> None:
+        super().__init__()
+        self.norm = nn.BatchNorm2d(num_input_features)
+        self.relu = nn.ReLU(inplace=True)
+        if is_encoder:
+            self.conv = nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False)
+            self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
+        else:
+            self.conv = nn.ConvTranspose2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False)
+            self.pool = nn.ConvTranspose2d(num_output_features, num_output_features, 2, 2)
 
 
 class CNN(nn.Module):
-    def __init__(self):
-        super(CNN, self).__init__()
-        self.init_conv = nn.Conv2d(3, 48, 3, 2, 1)
-        self.BN1 = nn.BatchNorm2d(48)
-        self.db1 = DenseBlock(48, 16, 'encode')
-        self.tb1 = TransitionBlock(96, 0.5, 'encode')
-        self.db2 = DenseBlock(48, 16, 'encode')
-        self.tb2 = TransitionBlock(96, 0.5, 'encode')
-        self.db3 = DenseBlock(48, 16, 'encode')
-        self.BN2 = nn.BatchNorm2d(96)
-        self.down_conv = nn.Conv2d(96, 48, 2, 2, 0)
+    def __init__(
+        self,
+        growth_rate: int = 32,
+        block_config: Tuple[int, int, int, int] = (3, 3, 3, 3),
+        num_init_features: int = 96,
+        bn_size: int = 4,
+        drop_rate: float = 0,
+        memory_efficient: bool = False
+    ) -> None:
 
-    def forward(self, inputs):
-        out = self.init_conv(inputs)
-        out = self.BN1(out)
-        out = torch.relu(out)
-        out = self.db1(out)
-        out = self.tb1(out)
-        out = self.db2(out)
-        out = self.tb2(out)
-        out = self.db3(out)
-        out = self.BN2(out)
-        out = torch.relu(out)
-        out = self.down_conv(out)
+        super().__init__()
+
+        # First convolution
+        self.features = nn.Sequential(
+            OrderedDict(
+                [
+                    ("conv0", nn.Conv2d(3, num_init_features, kernel_size=3, stride=2, padding=1, bias=False)),
+                    ("norm0", nn.BatchNorm2d(num_init_features)),
+                    ("relu0", nn.ReLU(inplace=True))
+                ]
+            )
+        )
+
+        # Each denseblock
+        num_features = num_init_features
+        for i, num_layers in enumerate(block_config):
+            block = _DenseBlock(
+                num_layers=num_layers,
+                num_input_features=num_features,
+                bn_size=bn_size,
+                growth_rate=growth_rate,
+                drop_rate=drop_rate,
+                memory_efficient=memory_efficient,
+            )
+            self.features.add_module("denseblock%d" % (i + 1), block)
+            num_features = num_features + num_layers * growth_rate
+            if i != len(block_config) - 1:
+                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
+                self.features.add_module("transition%d" % (i + 1), trans)
+                num_features = num_features // 2
+
+        # Final batch norm
+        self.features.add_module("norm5", nn.BatchNorm2d(num_features))
+        self.features.add_module("relu5", nn.ReLU(inplace=True))
+        self.features.add_module("down_conv", nn.Conv2d(num_features, num_init_features, 2, 2))
+
+        # Official init from torch repo.
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x: Tensor) -> Tensor:
+        features = self.features(x)
+        out = F.relu(features, inplace=True)
         return out
 
 
 class DCNN(nn.Module):
-    def __init__(self):
-        super(DCNN, self).__init__()
-        self.up_conv = nn.ConvTranspose2d(48, 48, 2, 2, 0)
-        self.db1 = DenseBlock(48, 16, 'decode')
-        self.tb1 = TransitionBlock(96, 0.5, 'decode')
-        self.db2 = DenseBlock(48, 16, 'decode')
-        self.tb2 = TransitionBlock(96, 0.5, 'decode')
-        self.db3 = DenseBlock(48, 16, 'decode')
-        self.bn1 = nn.BatchNorm2d(96)
-        self.de_conv = nn.ConvTranspose2d(96, 48, 2, 2, 0)
-        self.bn2 = nn.BatchNorm2d(48)
-        self.out_conv = nn.ConvTranspose2d(48, 3, 3, 1, 1)
+    def __init__(
+        self,
+        growth_rate: int = 32,
+        block_config: Tuple[int, int, int, int] = (3, 3, 3, 3),
+        num_init_features: int = 96,
+        bn_size: int = 4,
+        drop_rate: float = 0,
+        memory_efficient: bool = False
+    ) -> None:
 
-    def forward(self, x):
-        out = self.up_conv(x)
-        out = self.db1(out)
-        out = self.tb1(out)
-        out = self.db2(out)
-        out = self.tb2(out)
-        out = self.db3(out)
-        out = self.bn1(out)
-        out = torch.relu(out)
-        out = self.de_conv(out)
-        out = self.bn2(out)
-        out = torch.relu(out)
-        out = self.out_conv(out)
+        super().__init__()
+
+        # First convolution
+        self.features = nn.Sequential(
+            OrderedDict(
+                [
+                    ("conv0", nn.ConvTranspose2d(num_init_features, num_init_features, 2, 2)),
+                    ("norm0", nn.BatchNorm2d(num_init_features)),
+                    ("relu0", nn.ReLU(inplace=True))
+                ]
+            )
+        )
+
+        # Each denseblock
+        num_features = num_init_features
+        for i, num_layers in enumerate(block_config):
+            block = _DenseBlock(
+                num_layers=num_layers,
+                num_input_features=num_features,
+                bn_size=bn_size,
+                growth_rate=growth_rate,
+                drop_rate=drop_rate,
+                memory_efficient=memory_efficient,
+                is_encoder=False
+            )
+            self.features.add_module("denseblock%d" % (i + 1), block)
+            num_features = num_features + num_layers * growth_rate
+            if i != len(block_config) - 1:
+                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2, is_encoder=False)
+                self.features.add_module("transition%d" % (i + 1), trans)
+                num_features = num_features // 2
+
+        # Final batch norm
+        self.features.add_module("norm5", nn.BatchNorm2d(num_features))
+        self.features.add_module("relu5", nn.ReLU(inplace=True))
+        self.features.add_module("down_conv", nn.ConvTranspose2d(num_features, 3, 3, 2, 1, 1))
+
+        # Official init from torch repo.
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x: Tensor) -> Tensor:
+        features = self.features(x)
+        out = F.relu(features, inplace=True)
         return out
 
 
