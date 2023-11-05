@@ -11,24 +11,27 @@ from utils.enums import Task
 from utils.nn_utils import MLP, arr_to_cov, one_hot
 
 
-CNN_SHAPE = (512, 3, 3)
-CNN_SIZE = np.prod(CNN_SHAPE)
+CNN_SIZE = 512
 
 
 class CNN(nn.Module):
     def __init__(self):
         super().__init__()
+        channels = [3, 32, 64, 128, 256, 512]
         modules = []
-        hidden_dims = [32, 64, 128, 256, 512]
-        in_channels = 3
-        for h_dim in hidden_dims:
+        for i in range(len(channels) - 1):
             modules.append(
                 nn.Sequential(
-                    nn.Conv2d(in_channels, out_channels=h_dim, kernel_size=3, stride=2, padding=1),
-                    nn.BatchNorm2d(h_dim),
+                    nn.Conv2d(
+                        channels[i],
+                        channels[i + 1],
+                        kernel_size=3,
+                        stride=2,
+                        padding=1),
+                    nn.BatchNorm2d(channels[i + 1]),
                     nn.LeakyReLU())
             )
-            in_channels = h_dim
+        modules.append(nn.AdaptiveAvgPool2d((1, 1)))
         self.sequential = nn.Sequential(*modules)
 
     def forward(self, x):
@@ -38,31 +41,22 @@ class CNN(nn.Module):
 class DCNN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.hidden_dims = [512, 256, 128, 64, 32]
+        channels = [512, 256, 128, 64, 32, 3]
         modules = []
-        for i in range(len(self.hidden_dims) - 1):
+        modules.append(nn.Upsample(size=3, mode='nearest'))
+        for i in range(len(channels) - 1):
             modules.append(
                 nn.Sequential(
                     nn.ConvTranspose2d(
-                        self.hidden_dims[i],
-                        self.hidden_dims[i + 1],
+                        channels[i],
+                        channels[i + 1],
                         kernel_size=3,
                         stride=2,
                         padding=1,
                         output_padding=1),
-                    nn.BatchNorm2d(self.hidden_dims[i + 1]),
+                    nn.BatchNorm2d(channels[i + 1]),
                     nn.LeakyReLU())
             )
-        modules.append(nn.ConvTranspose2d(
-            self.hidden_dims[-1],
-            self.hidden_dims[-1],
-            kernel_size=3,
-            stride=2,
-            padding=1,
-            output_padding=1))
-        modules.append(nn.BatchNorm2d(self.hidden_dims[-1]))
-        modules.append(nn.LeakyReLU())
-        modules.append(nn.Conv2d(self.hidden_dims[-1], out_channels=3, kernel_size=3, padding=1))
         self.sequential = nn.Sequential(*modules)
 
     def forward(self, x):
@@ -115,7 +109,7 @@ class Decoder(nn.Module):
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.mlp(z).view(batch_size, *CNN_SHAPE)
+        x_pred = self.mlp(z)[:, :, None, None]
         x_pred = self.dcnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
