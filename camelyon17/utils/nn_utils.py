@@ -41,7 +41,3 @@ def arr_to_cov(low_rank, diag):
 
 def arr_to_tril(low_rank, diag):
     return torch.linalg.cholesky(arr_to_cov(low_rank, diag))
-
-
-def tril_to_cov(tril):
-    return torch.bmm(tril, tril.transpose(1, 2))
