@@ -169,9 +169,6 @@ class DenseNet(nn.Module):
         # Final batch norm
         self.features.add_module("norm5", nn.BatchNorm2d(num_features))
 
-        # Linear layer
-        self.classifier = nn.Linear(num_features, num_classes)
-
         # Official init from torch repo.
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
