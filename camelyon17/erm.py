@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from utils.nn_utils import MLP
-from vae import CNN_SIZE, DenseNet
+from vae import CNN_SIZE, CNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
 
@@ -50,11 +50,12 @@ class ERM_X(ERMBase):
     def __init__(self, h_sizes, lr, weight_decay):
         super().__init__(lr, weight_decay)
         self.save_hyperparameters()
-        self.densenet = DenseNet()
+        self.cnn = CNN()
         self.mlp = MLP(CNN_SIZE, h_sizes, 1)
 
     def forward(self, x, y, e):
-        x = self.densenet(x)
+        batch_size = len(x)
+        x = self.cnn(x).view(batch_size, -1)
         y_pred = self.mlp(x).view(-1)
         return y_pred, y
 
