@@ -102,15 +102,13 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, z_size, h_sizes):
+    def __init__(self):
         super().__init__()
-        self.mlp = MLP(2 * z_size, h_sizes, CNN_SIZE)
         self.dcnn = DCNN()
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.mlp(z)[:, :, None, None]
-        x_pred = self.dcnn(x_pred).view(batch_size, -1)
+        x_pred = self.dcnn(z[:, :, None, None]).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
 
@@ -166,7 +164,7 @@ class VAE(pl.LightningModule):
         # q(z_c,z_s|x)
         self.encoder = Encoder(z_size, rank, h_sizes)
         # p(x|z_c, z_s)
-        self.decoder = Decoder(z_size, h_sizes)
+        self.decoder = Decoder()
         # p(z_c,z_s|y,e)
         self.prior = Prior(z_size, rank, prior_init_sd)
         # p(y|z)
