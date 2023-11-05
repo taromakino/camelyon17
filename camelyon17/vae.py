@@ -10,47 +10,45 @@ from utils.enums import Task
 from utils.nn_utils import MLP, arr_to_cov, one_hot
 
 
-CNN_SIZE = 864
+CNN_SIZE = 48 * 6 * 6
 
 
 class DenseLayer(nn.Module):
     def __init__(self, in_channels, growth_rate, mode='encode'):
         assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
         super(DenseLayer, self).__init__()
-        self.BN1 = nn.BatchNorm2d(in_channels)
-        self.relu1 = nn.ReLU()
+        self.bn1 = nn.BatchNorm2d(in_channels)
         if mode == 'encode':
             self.conv1 = nn.Conv2d(in_channels, 4 * growth_rate, 1, 1, 0)
             self.conv2 = nn.Conv2d(4 * growth_rate, growth_rate, 3, 1, 1)
         elif mode == 'decode':
             self.conv1 = nn.ConvTranspose2d(in_channels, 4 * growth_rate, 1, 1, 0)
             self.conv2 = nn.ConvTranspose2d(4 * growth_rate, growth_rate, 3, 1, 1)
-        self.BN2 = nn.BatchNorm2d(4 * growth_rate)
-        self.relu2 = nn.ReLU()
+        self.bn2 = nn.BatchNorm2d(4 * growth_rate)
 
     def forward(self, x):
-        bn1 = self.BN1(x)
-        relu1 = self.relu1(bn1)
-        conv1 = self.conv1(relu1)
-        bn2 = self.BN2(conv1)
-        relu2 = self.relu2(bn2)
-        conv2 = self.conv2(relu2)
-        return torch.cat([x, conv2], dim=1)
+        out = self.bn1(x)
+        out = torch.relu(out)
+        out = self.conv1(out)
+        out = self.bn2(out)
+        out = torch.relu(out)
+        out = self.conv2(out)
+        return torch.cat([x, out], dim=1)
 
 
 class DenseBlock(nn.Module):
     def __init__(self, in_channels, growth_rate, mode='encode'):
         assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
         super(DenseBlock, self).__init__()
-        self.DL1 = DenseLayer(in_channels + (growth_rate * 0), growth_rate, mode)
-        self.DL2 = DenseLayer(in_channels + (growth_rate * 1), growth_rate, mode)
-        self.DL3 = DenseLayer(in_channels + (growth_rate * 2), growth_rate, mode)
+        self.layer1 = DenseLayer(in_channels + (growth_rate * 0), growth_rate, mode)
+        self.layer2 = DenseLayer(in_channels + (growth_rate * 1), growth_rate, mode)
+        self.layer3 = DenseLayer(in_channels + (growth_rate * 2), growth_rate, mode)
 
     def forward(self, x):
-        DL1 = self.DL1(x)
-        DL2 = self.DL2(DL1)
-        DL3 = self.DL3(DL2)
-        return DL3
+        out = self.layer1(x)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        return out
 
 
 class TransitionBlock(nn.Module):
@@ -58,8 +56,7 @@ class TransitionBlock(nn.Module):
         assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
         super(TransitionBlock, self).__init__()
         out_channels = int(c_rate * in_channels)
-        self.BN = nn.BatchNorm2d(in_channels)
-        self.relu = nn.ReLU()
+        self.bn = nn.BatchNorm2d(in_channels)
         if mode == 'encode':
             self.conv = nn.Conv2d(in_channels, out_channels, 1, 1, 0)
             self.resize_layer = nn.AvgPool2d(2, 2)
@@ -68,73 +65,69 @@ class TransitionBlock(nn.Module):
             self.resize_layer = nn.ConvTranspose2d(out_channels, out_channels, 2, 2, 0)
 
     def forward(self, x):
-        bn = self.BN(x)
-        relu = self.relu(bn)
-        conv = self.conv(relu)
-        output = self.resize_layer(conv)
-        return output
+        out = self.bn(x)
+        out = torch.relu(out)
+        out = self.conv(out)
+        out = self.resize_layer(out)
+        return out
 
 
 class CNN(nn.Module):
     def __init__(self):
         super(CNN, self).__init__()
-        self.init_conv = nn.Conv2d(3, 24, 3, 2, 1)
-        self.BN1 = nn.BatchNorm2d(24)
-        self.relu1 = nn.ReLU()
-        self.db1 = DenseBlock(24, 8, 'encode')
-        self.tb1 = TransitionBlock(48, 0.5, 'encode')
-        self.db2 = DenseBlock(24, 8, 'encode')
-        self.tb2 = TransitionBlock(48, 0.5, 'encode')
-        self.db3 = DenseBlock(24, 8, 'encode')
-        self.BN2 = nn.BatchNorm2d(48)
-        self.relu2 = nn.ReLU()
-        self.down_conv = nn.Conv2d(48, 24, 2, 2, 0)
+        self.init_conv = nn.Conv2d(3, 48, 3, 2, 1)
+        self.BN1 = nn.BatchNorm2d(48)
+        self.db1 = DenseBlock(48, 16, 'encode')
+        self.tb1 = TransitionBlock(96, 0.5, 'encode')
+        self.db2 = DenseBlock(48, 16, 'encode')
+        self.tb2 = TransitionBlock(96, 0.5, 'encode')
+        self.db3 = DenseBlock(48, 16, 'encode')
+        self.BN2 = nn.BatchNorm2d(96)
+        self.down_conv = nn.Conv2d(96, 48, 2, 2, 0)
 
-    def forward(self, x):
-        init_conv = self.init_conv(x)
-        bn1 = self.BN1(init_conv)
-        relu1 = self.relu1(bn1)
-        db1 = self.db1(relu1)
-        tb1 = self.tb1(db1)
-        db2 = self.db2(tb1)
-        tb2 = self.tb2(db2)
-        db3 = self.db3(tb2)
-        bn2 = self.BN2(db3)
-        relu2 = self.relu2(bn2)
-        down_conv = self.down_conv(relu2)
-        return down_conv
+    def forward(self, inputs):
+        out = self.init_conv(inputs)
+        out = self.BN1(out)
+        out = torch.relu(out)
+        out = self.db1(out)
+        out = self.tb1(out)
+        out = self.db2(out)
+        out = self.tb2(out)
+        out = self.db3(out)
+        out = self.BN2(out)
+        out = torch.relu(out)
+        out = self.down_conv(out)
+        return out
 
 
 class DCNN(nn.Module):
     def __init__(self):
         super(DCNN, self).__init__()
-        self.up_conv = nn.ConvTranspose2d(24, 24, 2, 2, 0)
-        self.db1 = DenseBlock(24, 8, 'decode')
-        self.tb1 = TransitionBlock(48, 0.5, 'decode')
-        self.db2 = DenseBlock(24, 8, 'decode')
-        self.tb2 = TransitionBlock(48, 0.5, 'decode')
-        self.db3 = DenseBlock(24, 8, 'decode')
-        self.BN1 = nn.BatchNorm2d(48)
-        self.relu1 = nn.ReLU()
-        self.de_conv = nn.ConvTranspose2d(48, 24, 2, 2, 0)
-        self.BN2 = nn.BatchNorm2d(24)
-        self.relu2 = nn.ReLU()
-        self.out_conv = nn.ConvTranspose2d(24, 3, 3, 1, 1)
+        self.up_conv = nn.ConvTranspose2d(48, 48, 2, 2, 0)
+        self.db1 = DenseBlock(48, 16, 'decode')
+        self.tb1 = TransitionBlock(96, 0.5, 'decode')
+        self.db1 = DenseBlock(48, 16, 'decode')
+        self.tb1 = TransitionBlock(96, 0.5, 'decode')
+        self.db1 = DenseBlock(48, 16, 'decode')
+        self.BN1 = nn.BatchNorm2d(96)
+        self.de_conv = nn.ConvTranspose2d(96, 48, 2, 2, 0)
+        self.BN2 = nn.BatchNorm2d(48)
+        self.out_conv = nn.ConvTranspose2d(48, 3, 3, 1, 1)
 
-    def forward(self, z):
-        up_conv = self.up_conv(z)
-        db1 = self.db1(up_conv)
-        tb1 = self.tb1(db1)
-        db2 = self.db2(tb1)
-        tb2 = self.tb2(db2)
-        db3 = self.db3(tb2)
-        bn1 = self.BN1(db3)
-        relu1 = self.relu1(bn1)
-        de_conv = self.de_conv(relu1)
-        bn2 = self.BN2(de_conv)
-        relu2 = self.relu2(bn2)
-        output = self.out_conv(relu2)
-        return output
+    def forward(self, x):
+        out = self.up_conv(x)
+        out = self.db1(out)
+        out = self.tb1(out)
+        out = self.db2(out)
+        out = self.tb2(out)
+        out = self.db3(out)
+        out = self.BN1(out)
+        out = torch.relu(out)
+        out = self.de_conv(out)
+        out = self.BN2(out)
+        out = torch.relu(out)
+        out = self.out_conv(out)
+        return out
 
 
 class Encoder(nn.Module):
@@ -183,7 +176,7 @@ class Decoder(nn.Module):
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.mlp(z).view(batch_size, 24, 6, 6)
+        x_pred = self.mlp(z).view(batch_size, 48, 6, 6)
         x_pred = self.dcnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
