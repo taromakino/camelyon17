@@ -214,7 +214,7 @@ class Encoder(nn.Module):
         super().__init__()
         self.z_size = z_size
         self.rank = rank
-        self.densenet = DenseNet
+        self.densenet = DenseNet()
         self.mu_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size)
         self.low_rank_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size * rank)
         self.diag_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size)
