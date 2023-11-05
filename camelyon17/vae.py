@@ -304,7 +304,7 @@ class Decoder(nn.Module):
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.mlp(z).view(batch_size, 48, 6, 6)
+        x_pred = self.mlp(z).view(batch_size, 96, 3, 3)
         x_pred = self.dcnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
