@@ -130,7 +130,6 @@ class DenseNet(nn.Module):
         num_init_features: int = 64,
         bn_size: int = 4,
         drop_rate: float = 0,
-        num_classes: int = 1000,
         memory_efficient: bool = False,
     ) -> None:
 
@@ -140,10 +139,9 @@ class DenseNet(nn.Module):
         self.features = nn.Sequential(
             OrderedDict(
                 [
-                    ("conv0", nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
+                    ("conv0", nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)),
                     ("norm0", nn.BatchNorm2d(num_init_features)),
-                    ("relu0", nn.ReLU(inplace=True)),
-                    ("pool0", nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
+                    ("relu0", nn.ReLU(inplace=True))
                 ]
             )
         )
