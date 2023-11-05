@@ -37,7 +37,7 @@ def main(args):
     rng = np.random.RandomState(args.seed)
     task_dpath = os.path.join(args.dpath, Task.VAE.value)
     pl.seed_everything(args.seed)
-    dataloader, _, _, _ = make_data(1, None)
+    dataloader, _, _, _ = make_data(1, None, None)
     vae = VAE.load_from_checkpoint(os.path.join(task_dpath, f'version_{args.seed}', 'checkpoints', 'best.ckpt'))
     example_idxs = rng.choice(len(dataloader), args.n_examples, replace=False)
     for i, example_idx in enumerate(example_idxs):

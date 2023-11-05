@@ -14,7 +14,7 @@ from utils.enums import Task
 from utils.nn_utils import MLP, arr_to_cov, one_hot
 
 
-CNN_SIZE = 1024 * 3 * 3
+CNN_SIZE = 1024
 
 
 class _DenseLayer(nn.Module):
@@ -193,20 +193,25 @@ class DenseNet(nn.Module):
 class DCNN(nn.Module):
     def __init__(self):
         super(DCNN, self).__init__()
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(1024, 512, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, 3, kernel_size=4, stride=2, padding=1)
+        self.sequential = nn.Sequential(
+            nn.ConvTranspose2d(1024, 512, kernel_size=4, stride=2),
+            nn.ReLU(True),
+            nn.BatchNorm2d(512),
+            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2),
+            nn.ReLU(True),
+            nn.BatchNorm2d(256),
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2),
+            nn.ReLU(True),
+            nn.BatchNorm2d(128),
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2),
+            nn.ReLU(True),
+            nn.BatchNorm2d(64),
+            nn.ConvTranspose2d(64, 3, kernel_size=6, stride=2),
+            nn.ReLU(True)
         )
 
     def forward(self, x):
-        return self.decoder(x)
+        return self.sequential(x)
 
 
 class Encoder(nn.Module):
@@ -224,7 +229,7 @@ class Encoder(nn.Module):
 
     def forward(self, x, y, e):
         batch_size = len(x)
-        x = self.densenet(x).view(batch_size, -1)
+        x = self.densenet(x)
         y_one_hot = one_hot(y, N_CLASSES)
         e_one_hot = one_hot(e, N_ENVS)
         # Causal
@@ -255,7 +260,7 @@ class Decoder(nn.Module):
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.mlp(z).view(batch_size, 1024, 3, 3)
+        x_pred = self.mlp(z)[:, :, 1, 1]
         x_pred = self.dcnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
