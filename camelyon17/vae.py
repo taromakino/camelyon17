@@ -3,210 +3,82 @@ import torch
 import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.utils.checkpoint as cp
-from collections import OrderedDict
 from data import N_CLASSES, N_ENVS
-from torch import Tensor
 from torch.optim import Adam
 from torchmetrics import Accuracy
-from typing import List, Tuple
 from utils.enums import Task
 from utils.nn_utils import MLP, arr_to_cov, one_hot
 
 
-CNN_SIZE = 1024
+CNN_SIZE = 512 * 2 * 2
 
 
-class _DenseLayer(nn.Module):
-    def __init__(
-        self, num_input_features: int, growth_rate: int, bn_size: int, drop_rate: float, memory_efficient: bool = False
-    ) -> None:
-        super().__init__()
-        self.norm1 = nn.BatchNorm2d(num_input_features)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)
+class ResBlock(nn.Module):
+    def __init__(self, c_in, c_out, k, s, p, o, mode='encode'):
+        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
+        super(ResBlock, self).__init__()
+        if mode == 'encode':
+            self.conv1 = nn.Conv2d(c_in, c_out, k, s, p)
+            self.conv2 = nn.Conv2d(c_out, c_out, 3, 1, 1)
+        elif mode == 'decode':
+            self.conv1 = nn.ConvTranspose2d(c_in, c_out, k, s, p, o)
+            self.conv2 = nn.ConvTranspose2d(c_out, c_out, 3, 1, 1)
+        self.relu = nn.ReLU()
+        self.bn1 = nn.BatchNorm2d(c_out)
+        self.bn2 = nn.BatchNorm2d(c_out)
+        self.resize = s > 1 or (s == 1 and p == 0) or c_out != c_in
 
-        self.norm2 = nn.BatchNorm2d(bn_size * growth_rate)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)
-
-        self.drop_rate = float(drop_rate)
-        self.memory_efficient = memory_efficient
-
-    def bn_function(self, inputs: List[Tensor]) -> Tensor:
-        concated_features = torch.cat(inputs, 1)
-        bottleneck_output = self.conv1(self.relu1(self.norm1(concated_features)))  # noqa: T484
-        return bottleneck_output
-
-    # todo: rewrite when torchscript supports any
-    def any_requires_grad(self, input: List[Tensor]) -> bool:
-        for tensor in input:
-            if tensor.requires_grad:
-                return True
-        return False
-
-    @torch.jit.unused  # noqa: T484
-    def call_checkpoint_bottleneck(self, input: List[Tensor]) -> Tensor:
-        def closure(*inputs):
-            return self.bn_function(inputs)
-
-        return cp.checkpoint(closure, *input)
-
-    @torch.jit._overload_method  # noqa: F811
-    def forward(self, input: List[Tensor]) -> Tensor:  # noqa: F811
-        pass
-
-    @torch.jit._overload_method  # noqa: F811
-    def forward(self, input: Tensor) -> Tensor:  # noqa: F811
-        pass
-
-    # torchscript does not yet support *args, so we overload method
-    # allowing it to take either a List[Tensor] or single Tensor
-    def forward(self, input: Tensor) -> Tensor:  # noqa: F811
-        if isinstance(input, Tensor):
-            prev_features = [input]
-        else:
-            prev_features = input
-
-        if self.memory_efficient and self.any_requires_grad(prev_features):
-            if torch.jit.is_scripting():
-                raise Exception("Memory Efficient not supported in JIT")
-
-            bottleneck_output = self.call_checkpoint_bottleneck(prev_features)
-        else:
-            bottleneck_output = self.bn_function(prev_features)
-
-        new_features = self.conv2(self.relu2(self.norm2(bottleneck_output)))
-        if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
-        return new_features
+    def forward(self, x):
+        conv1 = self.bn1(self.conv1(x))
+        relu = self.relu(conv1)
+        conv2 = self.bn2(self.conv2(relu))
+        if self.resize:
+            x = self.bn1(self.conv1(x))
+        return self.relu(x + conv2)
 
 
-class _DenseBlock(nn.ModuleDict):
-    _version = 2
+class CNN(nn.Module):
+    def __init__(self):
+        super(CNN, self).__init__()
+        self.init_conv = nn.Conv2d(3, 64, 3, 1, 1)          # 64 96 96
+        self.rb1 = ResBlock(64, 64, 3, 2, 1, 0, 'encode')   # 64 48 48
+        self.rb2 = ResBlock(64, 128, 3, 2, 1, 0, 'encode')  # 128 24 24
+        self.rb3 = ResBlock(128, 128, 3, 2, 1, 0, 'encode') # 128 12 12
+        self.rb4 = ResBlock(128, 256, 3, 2, 1, 0, 'encode') # 256 6 6
+        self.rb5 = ResBlock(256, 256, 3, 2, 1, 0, 'encode') # 256 3 3
+        self.rb6 = ResBlock(256, 512, 3, 2, 1, 0, 'encode') # 512 2 2
 
-    def __init__(
-        self,
-        num_layers: int,
-        num_input_features: int,
-        bn_size: int,
-        growth_rate: int,
-        drop_rate: float,
-        memory_efficient: bool = False,
-    ) -> None:
-        super().__init__()
-        for i in range(num_layers):
-            layer = _DenseLayer(
-                num_input_features + i * growth_rate,
-                growth_rate=growth_rate,
-                bn_size=bn_size,
-                drop_rate=drop_rate,
-                memory_efficient=memory_efficient,
-            )
-            self.add_module("denselayer%d" % (i + 1), layer)
-
-    def forward(self, init_features: Tensor) -> Tensor:
-        features = [init_features]
-        for name, layer in self.items():
-            new_features = layer(features)
-            features.append(new_features)
-        return torch.cat(features, 1)
-
-
-class _Transition(nn.Sequential):
-    def __init__(self, num_input_features: int, num_output_features: int) -> None:
-        super().__init__()
-        self.norm = nn.BatchNorm2d(num_input_features)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False)
-        self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
-
-
-class DenseNet(nn.Module):
-    def __init__(
-        self,
-        growth_rate: int = 32,
-        block_config: Tuple[int, int, int, int] = (6, 12, 24, 16),
-        num_init_features: int = 64,
-        bn_size: int = 4,
-        drop_rate: float = 0,
-        memory_efficient: bool = False,
-    ) -> None:
-
-        super().__init__()
-
-        # First convolution
-        self.features = nn.Sequential(
-            OrderedDict(
-                [
-                    ("conv0", nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)),
-                    ("norm0", nn.BatchNorm2d(num_init_features)),
-                    ("relu0", nn.ReLU(inplace=True))
-                ]
-            )
-        )
-
-        # Each denseblock
-        num_features = num_init_features
-        for i, num_layers in enumerate(block_config):
-            block = _DenseBlock(
-                num_layers=num_layers,
-                num_input_features=num_features,
-                bn_size=bn_size,
-                growth_rate=growth_rate,
-                drop_rate=drop_rate,
-                memory_efficient=memory_efficient,
-            )
-            self.features.add_module("denseblock%d" % (i + 1), block)
-            num_features = num_features + num_layers * growth_rate
-            if i != len(block_config) - 1:
-                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
-                self.features.add_module("transition%d" % (i + 1), trans)
-                num_features = num_features // 2
-
-        # Final batch norm
-        self.features.add_module("norm5", nn.BatchNorm2d(num_features))
-
-        # Official init from torch repo.
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.constant_(m.bias, 0)
-
-    def forward(self, x: Tensor) -> Tensor:
-        features = self.features(x)
-        out = F.relu(features, inplace=True)
-        out = F.adaptive_avg_pool2d(out, (1, 1))
-        out = torch.flatten(out, 1)
-        return out
+    def forward(self, inputs):
+        init_conv = torch.relu(self.init_conv(inputs))
+        rb1 = self.rb1(init_conv)
+        rb2 = self.rb2(rb1)
+        rb3 = self.rb3(rb2)
+        rb4 = self.rb4(rb3)
+        rb5 = self.rb5(rb4)
+        rb6 = self.rb6(rb5)
+        return rb6
 
 
 class DCNN(nn.Module):
     def __init__(self):
         super(DCNN, self).__init__()
-        self.sequential = nn.Sequential(
-            nn.ConvTranspose2d(1024, 512, kernel_size=4, stride=2),
-            nn.ReLU(True),
-            nn.BatchNorm2d(512),
-            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2),
-            nn.ReLU(True),
-            nn.BatchNorm2d(256),
-            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2),
-            nn.ReLU(True),
-            nn.BatchNorm2d(128),
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2),
-            nn.ReLU(True),
-            nn.BatchNorm2d(64),
-            nn.ConvTranspose2d(64, 3, kernel_size=6, stride=2),
-            nn.ReLU(True)
-        )
+        self.rb1 = ResBlock(512, 256, 3, 2, 1, 0, 'decode')  # 256 3 3
+        self.rb2 = ResBlock(256, 256, 3, 2, 1, 1, 'decode')  # 256 6 6
+        self.rb3 = ResBlock(256, 128, 3, 2, 1, 1, 'decode')  # 128 12 12
+        self.rb4 = ResBlock(128, 128, 3, 2, 1, 1, 'decode')  # 128 24 24
+        self.rb5 = ResBlock(128, 64, 3, 2, 1, 1, 'decode')   # 64 48 48
+        self.rb6 = ResBlock(64, 64, 3, 2, 1, 1, 'decode')    # 64 96 96
+        self.out_conv = nn.ConvTranspose2d(64, 3, 3, 1, 1)   # 3 96 96
 
-    def forward(self, x):
-        return self.sequential(x)
+    def forward(self, inputs):
+        rb1 = self.rb1(inputs)
+        rb2 = self.rb2(rb1)
+        rb3 = self.rb3(rb2)
+        rb4 = self.rb4(rb3)
+        rb5 = self.rb5(rb4)
+        rb6 = self.rb6(rb5)
+        out_conv = self.out_conv(rb6)
+        return out_conv
 
 
 class Encoder(nn.Module):
@@ -214,7 +86,7 @@ class Encoder(nn.Module):
         super().__init__()
         self.z_size = z_size
         self.rank = rank
-        self.densenet = DenseNet()
+        self.cnn = CNN()
         self.mu_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size)
         self.low_rank_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size * rank)
         self.diag_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size)
@@ -224,7 +96,7 @@ class Encoder(nn.Module):
 
     def forward(self, x, y, e):
         batch_size = len(x)
-        x = self.densenet(x)
+        x = self.cnn(x).view(batch_size, -1)
         y_one_hot = one_hot(y, N_CLASSES)
         e_one_hot = one_hot(e, N_ENVS)
         # Causal
@@ -255,7 +127,7 @@ class Decoder(nn.Module):
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.mlp(z)[:, :, None, None]
+        x_pred = self.mlp(z).view(batch_size, 512, 2, 2)
         x_pred = self.dcnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
