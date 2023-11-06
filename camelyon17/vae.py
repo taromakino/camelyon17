@@ -11,54 +11,76 @@ from utils.enums import Task
 from utils.nn_utils import MLP, arr_to_cov, one_hot
 
 
-CNN_SIZE = 512
+CNN_SHAPE = (512, 2, 2)
+CNN_SIZE = np.prod(CNN_SHAPE)
+
+
+class ResBlock(nn.Module):
+    def __init__(self, c_in, c_out, k, s, p, o, mode='encode'):
+        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
+        super(ResBlock, self).__init__()
+        if mode == 'encode':
+            self.conv1 = nn.Conv2d(c_in, c_out, k, s, p)
+            self.conv2 = nn.Conv2d(c_out, c_out, 3, 1, 1)
+        elif mode == 'decode':
+            self.conv1 = nn.ConvTranspose2d(c_in, c_out, k, s, p, o)
+            self.conv2 = nn.ConvTranspose2d(c_out, c_out, 3, 1, 1)
+        self.relu = nn.ReLU()
+        self.bn1 = nn.BatchNorm2d(c_out)
+        self.bn2 = nn.BatchNorm2d(c_out)
+        self.resize = s > 1 or (s == 1 and p == 0) or c_out != c_in
+
+    def forward(self, x):
+        conv1 = self.bn1(self.conv1(x))
+        relu = self.relu(conv1)
+        conv2 = self.bn2(self.conv2(relu))
+        if self.resize:
+            x = self.bn1(self.conv1(x))
+        return self.relu(x + conv2)
 
 
 class CNN(nn.Module):
     def __init__(self):
-        super().__init__()
-        module_list = []
-        channels = [3, 32, 64, 128, 256, 512]
-        for i in range(1, len(channels)):
-            module_list.append(
-                nn.Conv2d(
-                    channels[i - 1],
-                    channels[i],
-                    kernel_size=3,
-                    stride=2,
-                    padding=1)
-            )
-            module_list.append(nn.LeakyReLU())
-            module_list.append(nn.BatchNorm2d(channels[i]))
-        module_list.append(nn.AdaptiveAvgPool2d((1, 1)))
-        self.module_list = nn.Sequential(*module_list)
+        super(CNN, self).__init__()
+        self.init_conv = nn.Conv2d(3, 64, 3, 1, 1)          # 64 96 96
+        self.rb1 = ResBlock(64, 64, 3, 2, 1, 0, 'encode')   # 64 48 48
+        self.rb2 = ResBlock(64, 128, 3, 2, 1, 0, 'encode')  # 128 24 24
+        self.rb3 = ResBlock(128, 128, 3, 2, 1, 0, 'encode') # 128 12 12
+        self.rb4 = ResBlock(128, 256, 3, 2, 1, 0, 'encode') # 256 6 6
+        self.rb5 = ResBlock(256, 256, 3, 2, 1, 0, 'encode') # 256 3 3
+        self.rb6 = ResBlock(256, 512, 3, 2, 1, 0, 'encode') # 512 2 2
 
-    def forward(self, x):
-        return self.module_list(x)
+    def forward(self, inputs):
+        init_conv = torch.relu(self.init_conv(inputs))
+        rb1 = self.rb1(init_conv)
+        rb2 = self.rb2(rb1)
+        rb3 = self.rb3(rb2)
+        rb4 = self.rb4(rb3)
+        rb5 = self.rb5(rb4)
+        rb6 = self.rb6(rb5)
+        return rb6
 
 
 class DCNN(nn.Module):
     def __init__(self):
-        super().__init__()
-        channels = [512, 256, 128, 64, 32, 3]
-        module_list = []
-        module_list.append(nn.Upsample(size=3, mode='nearest'))
-        for i in range(1, len(channels)):
-            module_list.append(
-                nn.ConvTranspose2d(
-                    channels[i - 1],
-                    channels[i],
-                    kernel_size=3,
-                    stride=2,
-                    padding=1,
-                    output_padding=1)
-            )
-            module_list.append(nn.LeakyReLU())
-            module_list.append(nn.BatchNorm2d(channels[i]))
-        self.module_list = nn.Sequential(*module_list)
+        super(DCNN, self).__init__()
+        self.rb1 = ResBlock(512, 256, 3, 2, 1, 0, 'decode')  # 256 3 3
+        self.rb2 = ResBlock(256, 256, 3, 2, 1, 1, 'decode')  # 256 6 6
+        self.rb3 = ResBlock(256, 128, 3, 2, 1, 1, 'decode')  # 128 12 12
+        self.rb4 = ResBlock(128, 128, 3, 2, 1, 1, 'decode')  # 128 24 24
+        self.rb5 = ResBlock(128, 64, 3, 2, 1, 1, 'decode')   # 64 48 48
+        self.rb6 = ResBlock(64, 64, 3, 2, 1, 1, 'decode')    # 64 96 96
+        self.out_conv = nn.ConvTranspose2d(64, 3, 3, 1, 1)   # 3 96 96
 
-    def forward(self, x):
-        return self.module_list(x)
+    def forward(self, inputs):
+        rb1 = self.rb1(inputs)
+        rb2 = self.rb2(rb1)
+        rb3 = self.rb3(rb2)
+        rb4 = self.rb4(rb3)
+        rb5 = self.rb5(rb4)
+        rb6 = self.rb6(rb5)
+        out_conv = self.out_conv(rb6)
+        return out_conv
 
 
 class Encoder(nn.Module):
@@ -107,7 +129,7 @@ class Decoder(nn.Module):
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.mlp(z)[:, :, None, None]
+        x_pred = self.mlp(z).view(batch_size, *CNN_SHAPE)
         x_pred = self.dcnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
