@@ -164,7 +164,7 @@ class VAE(pl.LightningModule):
         # q(z_c,z_s|x)
         self.encoder = Encoder(z_size, rank, h_sizes)
         # p(x|z_c, z_s)
-        self.decoder = Decoder()
+        self.decoder = Decoder(z_size, h_sizes)
         # p(z_c,z_s|y,e)
         self.prior = Prior(z_size, rank, prior_init_sd)
         # p(y|z)
