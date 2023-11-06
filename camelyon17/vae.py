@@ -17,10 +17,10 @@ CNN_SIZE = 512
 class CNN(nn.Module):
     def __init__(self):
         super().__init__()
-        modules = []
+        module_list = []
         channels = [3, 32, 64, 128, 256, 512]
         for i in range(1, len(channels)):
-            modules.append(
+            module_list.append(
                 nn.Conv2d(
                     channels[i - 1],
                     channels[i],
@@ -28,24 +28,23 @@ class CNN(nn.Module):
                     stride=2,
                     padding=1)
             )
-            if i < len(channels) - 1:
-                modules.append(nn.BatchNorm2d(channels[i]))
-                modules.append(nn.LeakyReLU())
-        modules.append(nn.AdaptiveAvgPool2d((1, 1)))
-        self.sequential = nn.Sequential(*modules)
+            module_list.append(nn.LeakyReLU())
+            module_list.append(nn.BatchNorm2d(channels[i]))
+        module_list.append(nn.AdaptiveAvgPool2d((1, 1)))
+        self.module_list = nn.Sequential(*module_list)
 
     def forward(self, x):
-        return self.sequential(x)
+        return self.module_list(x)
 
 
 class DCNN(nn.Module):
     def __init__(self):
         super().__init__()
         channels = [512, 256, 128, 64, 32, 3]
-        modules = []
-        modules.append(nn.Upsample(size=3, mode='nearest'))
+        module_list = []
+        module_list.append(nn.Upsample(size=3, mode='nearest'))
         for i in range(1, len(channels)):
-            modules.append(
+            module_list.append(
                 nn.ConvTranspose2d(
                     channels[i - 1],
                     channels[i],
@@ -54,13 +53,12 @@ class DCNN(nn.Module):
                     padding=1,
                     output_padding=1)
             )
-            if i < len(channels) - 1:
-                modules.append(nn.BatchNorm2d(channels[i]))
-                modules.append(nn.LeakyReLU())
-        self.sequential = nn.Sequential(*modules)
+            module_list.append(nn.LeakyReLU())
+            module_list.append(nn.BatchNorm2d(channels[i]))
+        self.module_list = nn.Sequential(*module_list)
 
     def forward(self, x):
-        return self.sequential(x)
+        return self.module_list(x)
 
 
 class Encoder(nn.Module):
@@ -102,13 +100,15 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self):
+    def __init__(self, z_size, h_sizes):
         super().__init__()
+        self.mlp = MLP(2 * z_size, h_sizes, CNN_SIZE)
         self.dcnn = DCNN()
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.dcnn(z[:, :, None, None]).view(batch_size, -1)
+        x_pred = self.mlp(z)[:, :, None, None]
+        x_pred = self.dcnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
 
