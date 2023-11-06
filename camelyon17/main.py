@@ -87,7 +87,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--task', type=Task, choices=list(Task), required=True)
     parser.add_argument('--eval_stage', type=EvalStage, choices=list(EvalStage))
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--infer_batch_size', type=int, default=1024)
     parser.add_argument('--n_workers', type=int, default=20)
     parser.add_argument('--n_debug_examples', type=int)
