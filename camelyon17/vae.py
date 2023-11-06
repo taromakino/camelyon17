@@ -11,76 +11,50 @@ from utils.enums import Task
 from utils.nn_utils import MLP, arr_to_cov, one_hot
 
 
-CNN_SHAPE = (512, 2, 2)
-CNN_SIZE = np.prod(CNN_SHAPE)
-
-
-class ResBlock(nn.Module):
-    def __init__(self, c_in, c_out, k, s, p, o, mode='encode'):
-        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
-        super(ResBlock, self).__init__()
-        if mode == 'encode':
-            self.conv1 = nn.Conv2d(c_in, c_out, k, s, p)
-            self.conv2 = nn.Conv2d(c_out, c_out, 3, 1, 1)
-        elif mode == 'decode':
-            self.conv1 = nn.ConvTranspose2d(c_in, c_out, k, s, p, o)
-            self.conv2 = nn.ConvTranspose2d(c_out, c_out, 3, 1, 1)
-        self.relu = nn.ReLU()
-        self.bn1 = nn.BatchNorm2d(c_out)
-        self.bn2 = nn.BatchNorm2d(c_out)
-        self.resize = s > 1 or (s == 1 and p == 0) or c_out != c_in
-
-    def forward(self, x):
-        conv1 = self.bn1(self.conv1(x))
-        relu = self.relu(conv1)
-        conv2 = self.bn2(self.conv2(relu))
-        if self.resize:
-            x = self.bn1(self.conv1(x))
-        return self.relu(x + conv2)
+IMAGE_EMBED_SHAPE = (32, 6, 6)
+IMAGE_EMBED_SIZE = np.prod(IMAGE_EMBED_SHAPE)
 
 
 class CNN(nn.Module):
     def __init__(self):
-        super(CNN, self).__init__()
-        self.init_conv = nn.Conv2d(3, 64, 3, 1, 1)          # 64 96 96
-        self.rb1 = ResBlock(64, 64, 3, 2, 1, 0, 'encode')   # 64 48 48
-        self.rb2 = ResBlock(64, 128, 3, 2, 1, 0, 'encode')  # 128 24 24
-        self.rb3 = ResBlock(128, 128, 3, 2, 1, 0, 'encode') # 128 12 12
-        self.rb4 = ResBlock(128, 256, 3, 2, 1, 0, 'encode') # 256 6 6
-        self.rb5 = ResBlock(256, 256, 3, 2, 1, 0, 'encode') # 256 3 3
-        self.rb6 = ResBlock(256, 512, 3, 2, 1, 0, 'encode') # 512 2 2
+        super().__init__()
+        module_list = []
+        channels = [3, 32, 32, 32, 32]
+        for i in range(1, len(channels)):
+            module_list.append(
+                nn.Conv2d(
+                    channels[i - 1],
+                    channels[i],
+                    kernel_size=4,
+                    stride=2,
+                    padding=1)
+            )
+            module_list.append(nn.LeakyReLU())
+        self.module_list = nn.Sequential(*module_list)
 
-    def forward(self, inputs):
-        init_conv = torch.relu(self.init_conv(inputs))
-        rb1 = self.rb1(init_conv)
-        rb2 = self.rb2(rb1)
-        rb3 = self.rb3(rb2)
-        rb4 = self.rb4(rb3)
-        rb5 = self.rb5(rb4)
-        rb6 = self.rb6(rb5)
-        return rb6
+    def forward(self, x):
+        return self.module_list(x)
 
 
 class DCNN(nn.Module):
     def __init__(self):
-        super(DCNN, self).__init__()
-        self.rb1 = ResBlock(512, 256, 3, 2, 1, 0, 'decode')  # 256 3 3
-        self.rb2 = ResBlock(256, 256, 3, 2, 1, 1, 'decode')  # 256 6 6
-        self.rb3 = ResBlock(256, 128, 3, 2, 1, 1, 'decode')  # 128 12 12
-        self.rb4 = ResBlock(128, 128, 3, 2, 1, 1, 'decode')  # 128 24 24
-        self.rb5 = ResBlock(128, 64, 3, 2, 1, 1, 'decode')   # 64 48 48
-        self.rb6 = ResBlock(64, 64, 3, 2, 1, 1, 'decode')    # 64 96 96
-        self.out_conv = nn.ConvTranspose2d(64, 3, 3, 1, 1)   # 3 96 96
+        super().__init__()
+        channels = [32, 32, 32, 32, 3]
+        module_list = []
+        for i in range(1, len(channels)):
+            module_list.append(
+                nn.ConvTranspose2d(
+                    channels[i - 1],
+                    channels[i],
+                    kernel_size=4,
+                    stride=2,
+                    padding=1)
+            )
+            module_list.append(nn.LeakyReLU())
+        self.module_list = nn.Sequential(*module_list)
 
-    def forward(self, inputs):
-        rb1 = self.rb1(inputs)
-        rb2 = self.rb2(rb1)
-        rb3 = self.rb3(rb2)
-        rb4 = self.rb4(rb3)
-        rb5 = self.rb5(rb4)
-        rb6 = self.rb6(rb5)
-        out_conv = self.out_conv(rb6)
-        return out_conv
+    def forward(self, x):
+        return self.module_list(x)
 
 
 class Encoder(nn.Module):
@@ -89,12 +63,12 @@ class Encoder(nn.Module):
         self.z_size = z_size
         self.rank = rank
         self.cnn = CNN()
-        self.mu_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size)
-        self.low_rank_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size * rank)
-        self.diag_causal = MLP(CNN_SIZE + N_ENVS, h_sizes, z_size)
-        self.mu_spurious = MLP(CNN_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
-        self.low_rank_spurious = MLP(CNN_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size * rank)
-        self.diag_spurious = MLP(CNN_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.mu_causal = MLP(IMAGE_EMBED_SIZE + N_ENVS, h_sizes, z_size)
+        self.low_rank_causal = MLP(IMAGE_EMBED_SIZE + N_ENVS, h_sizes, z_size * rank)
+        self.diag_causal = MLP(IMAGE_EMBED_SIZE + N_ENVS, h_sizes, z_size)
+        self.mu_spurious = MLP(IMAGE_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.low_rank_spurious = MLP(IMAGE_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size * rank)
+        self.diag_spurious = MLP(IMAGE_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
 
     def forward(self, x, y, e):
         batch_size = len(x)
@@ -124,12 +98,12 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
-        self.mlp = MLP(2 * z_size, h_sizes, CNN_SIZE)
+        self.mlp = MLP(2 * z_size, h_sizes, IMAGE_EMBED_SIZE)
         self.dcnn = DCNN()
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.mlp(z).view(batch_size, *CNN_SHAPE)
+        x_pred = self.mlp(z).reshape(batch_size, *IMAGE_EMBED_SHAPE)
         x_pred = self.dcnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
