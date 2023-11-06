@@ -17,20 +17,20 @@ CNN_SIZE = 512
 class CNN(nn.Module):
     def __init__(self):
         super().__init__()
-        channels = [3, 32, 64, 128, 256, 512]
         modules = []
-        for i in range(len(channels) - 1):
+        channels = [3, 32, 64, 128, 256, 512]
+        for i in range(1, len(channels)):
             modules.append(
-                nn.Sequential(
-                    nn.Conv2d(
-                        channels[i],
-                        channels[i + 1],
-                        kernel_size=3,
-                        stride=2,
-                        padding=1),
-                    nn.BatchNorm2d(channels[i + 1]),
-                    nn.LeakyReLU())
+                nn.Conv2d(
+                    channels[i - 1],
+                    channels[i],
+                    kernel_size=3,
+                    stride=2,
+                    padding=1)
             )
+            if i < len(channels) - 1:
+                modules.append(nn.BatchNorm2d(channels[i]))
+                modules.append(nn.LeakyReLU())
         modules.append(nn.AdaptiveAvgPool2d((1, 1)))
         self.sequential = nn.Sequential(*modules)
 
@@ -44,19 +44,19 @@ class DCNN(nn.Module):
         channels = [512, 256, 128, 64, 32, 3]
         modules = []
         modules.append(nn.Upsample(size=3, mode='nearest'))
-        for i in range(len(channels) - 1):
+        for i in range(1, len(channels)):
             modules.append(
-                nn.Sequential(
-                    nn.ConvTranspose2d(
-                        channels[i],
-                        channels[i + 1],
-                        kernel_size=3,
-                        stride=2,
-                        padding=1,
-                        output_padding=1),
-                    nn.BatchNorm2d(channels[i + 1]),
-                    nn.LeakyReLU())
+                nn.ConvTranspose2d(
+                    channels[i - 1],
+                    channels[i],
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    output_padding=1)
             )
+            if i < len(channels) - 1:
+                modules.append(nn.BatchNorm2d(channels[i]))
+                modules.append(nn.LeakyReLU())
         self.sequential = nn.Sequential(*modules)
 
     def forward(self, x):
