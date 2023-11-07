@@ -98,7 +98,7 @@ if __name__ == '__main__':
     parser.add_argument('--y_mult', type=float, default=1)
     parser.add_argument('--beta', type=float, default=1)
     parser.add_argument('--reg_mult', type=float, default=1e-5)
-    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--weight_decay', type=float, default=1e-5)
     parser.add_argument('--alpha', type=float, default=1)
     parser.add_argument('--lr_infer', type=float, default=1)
