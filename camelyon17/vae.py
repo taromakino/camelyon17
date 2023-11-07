@@ -126,8 +126,8 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, h_sizes, prior_init_sd, y_mult, beta, reg_mult, lr, weight_decay, lr_infer,
-            n_infer_steps):
+    def __init__(self, task, z_size, rank, h_sizes, prior_init_sd, y_mult, beta, reg_mult, lr, weight_decay, alpha,
+            lr_infer, n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
@@ -137,6 +137,7 @@ class VAE(pl.LightningModule):
         self.reg_mult = reg_mult
         self.lr = lr
         self.weight_decay = weight_decay
+        self.alpha = alpha
         self.lr_infer = lr_infer
         self.n_infer_steps = n_infer_steps
         # q(z_c,z_s|x)
@@ -199,7 +200,9 @@ class VAE(pl.LightningModule):
         z_c, z_s = torch.chunk(z, 2, dim=1)
         y_pred = self.classifier(z_c).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc
+        # log q(z_c,z_s|x)
+        log_prob_z_x = self.encoder(x).log_prob(z)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_z_x
         return loss
 
     def opt_infer_loss(self, x, y_value):
