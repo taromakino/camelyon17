@@ -196,7 +196,7 @@ class VAE(pl.LightningModule):
     def infer_loss(self, x, z):
         log_prob_x_z = self.decoder(x, z).mean()
         log_prob_z_x = self.encoder(x).log_prob(z).mean()
-        loss = -log_prob_x_z - log_prob_z_x
+        loss = -log_prob_x_z - self.alpha * log_prob_z_x
         return loss
 
     def test_step(self, batch, batch_idx):
