@@ -193,25 +193,47 @@ class VAE(pl.LightningModule):
         self.log('val_kl', kl, on_step=False, on_epoch=True)
         self.log('val_loss', loss, on_step=False, on_epoch=True)
 
-    def infer_loss(self, x, z):
-        log_prob_x_z = self.decoder(x, z).mean()
-        log_prob_z_x = self.encoder(x).log_prob(z).mean()
-        loss = -log_prob_x_z - self.alpha * log_prob_z_x
+    def infer_loss(self, x, y, z):
+        # log p(x|z_c,z_s)
+        log_prob_x_z = self.decoder(x, z)
+        # log p(y|z_c)
+        z_c, z_s = torch.chunk(z, 2, dim=1)
+        y_pred = self.classifier(z_c).view(-1)
+        log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
+        # log q(z_c,z_s|x)
+        log_prob_z_x = self.encoder(x).log_prob(z)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_z_x
         return loss
+
+    def opt_infer_loss(self, x, y_value):
+        batch_size = len(x)
+        z_param = nn.Parameter(self.encoder(x).loc.detach())
+        y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
+        optim = Adam([z_param], lr=self.lr_infer)
+        for _ in range(self.n_infer_steps):
+            optim.zero_grad()
+            loss = self.infer_loss(x, y, z_param)
+            loss.mean().backward()
+            optim.step()
+        return loss.detach().clone()
+
+    def infer_z(self, x):
+        loss_candidates = []
+        y_candidates = []
+        for y_value in range(N_CLASSES):
+            loss_candidates.append(self.opt_infer_loss(x, y_value)[:, None])
+            y_candidates.append(y_value)
+        loss_candidates = torch.hstack(loss_candidates)
+        y_candidates = torch.tensor(y_candidates, device=self.device)
+        opt_loss = loss_candidates.min(dim=1)
+        y_pred = y_candidates[opt_loss.indices]
+        return opt_loss.values.mean(), y_pred
 
     def test_step(self, batch, batch_idx):
         assert self.task == Task.CLASSIFY
         x, y, e = batch
         with torch.set_grad_enabled(True):
-            z_param = nn.Parameter(self.encoder(x).loc.detach())
-            optim = Adam([z_param], lr=self.lr_infer)
-            for _ in range(self.n_infer_steps):
-                optim.zero_grad()
-                loss = self.infer_loss(x, z_param)
-                loss.backward()
-                optim.step()
-            z_c, z_s = torch.chunk(z_param, 2, dim=1)
-            y_pred = self.classifier(z_c).view(-1)
+            loss, y_pred = self.infer_z(x)
             self.log('loss', loss, on_step=False, on_epoch=True)
             self.eval_metric.update(y_pred, y)
 
