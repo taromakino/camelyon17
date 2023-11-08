@@ -193,6 +193,12 @@ class VAE(pl.LightningModule):
         self.log('val_kl', kl, on_step=False, on_epoch=True)
         self.log('val_loss', loss, on_step=False, on_epoch=True)
 
+    def infer_loss(self, x, z):
+        log_prob_x_z = self.decoder(x, z).mean()
+        log_prob_z_x = self.encoder(x).log_prob(z).mean()
+        loss = -log_prob_x_z - log_prob_z_x
+        return loss
+
     def test_step(self, batch, batch_idx):
         assert self.task == Task.CLASSIFY
         x, y, e = batch
@@ -201,8 +207,8 @@ class VAE(pl.LightningModule):
             optim = Adam([z_param], lr=self.lr_infer)
             for _ in range(self.n_infer_steps):
                 optim.zero_grad()
-                loss = -self.decoder(x, z_param).mean()
-                loss.mean().backward()
+                loss = self.infer_loss(x, z_param)
+                loss.backward()
                 optim.step()
             z_c, z_s = torch.chunk(z_param, 2, dim=1)
             y_pred = self.classifier(z_c).view(-1)
