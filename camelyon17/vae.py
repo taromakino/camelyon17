@@ -8,7 +8,7 @@ from data import N_CLASSES, N_ENVS
 from torch.optim import Adam
 from torchmetrics import Accuracy
 from utils.enums import Task
-from utils.nn_utils import MLP, arr_to_tril, arr_to_cov, one_hot
+from utils.nn_utils import MLP, arr_to_tril, arr_to_cov
 
 
 IMAGE_EMBED_SHAPE = (32, 6, 6)
@@ -18,19 +18,16 @@ IMAGE_EMBED_SIZE = np.prod(IMAGE_EMBED_SHAPE)
 class CNN(nn.Module):
     def __init__(self):
         super().__init__()
-        module_list = []
-        channels = [3, 32, 32, 32, 32]
-        for i in range(1, len(channels)):
-            module_list.append(
-                nn.Conv2d(
-                    channels[i - 1],
-                    channels[i],
-                    kernel_size=4,
-                    stride=2,
-                    padding=1)
-            )
-            module_list.append(nn.LeakyReLU())
-        self.module_list = nn.Sequential(*module_list)
+        self.module_list = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(32, 32, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(32, 32, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(32, 32, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU()
+        )
 
     def forward(self, x):
         return self.module_list(x)
@@ -39,19 +36,15 @@ class CNN(nn.Module):
 class DCNN(nn.Module):
     def __init__(self):
         super().__init__()
-        channels = [32, 32, 32, 32, 3]
-        module_list = []
-        for i in range(1, len(channels)):
-            module_list.append(
-                nn.ConvTranspose2d(
-                    channels[i - 1],
-                    channels[i],
-                    kernel_size=4,
-                    stride=2,
-                    padding=1)
-            )
-            module_list.append(nn.LeakyReLU())
-        self.module_list = nn.Sequential(*module_list)
+        self.module_list = nn.Sequential(
+            nn.ConvTranspose2d(32, 32, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(),
+            nn.ConvTranspose2d(32, 32, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(),
+            nn.ConvTranspose2d(32, 32, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(),
+            nn.ConvTranspose2d(32, 3, kernel_size=4, stride=2, padding=1)
+        )
 
     def forward(self, x):
         return self.module_list(x)
