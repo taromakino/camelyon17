@@ -215,7 +215,10 @@ class VAE(pl.LightningModule):
         assert self.task == Task.CLASSIFY
         x, y, e = batch
         with torch.set_grad_enabled(True):
-            loss, y_pred = self.infer_z(x)
+            log_prob_x_z, log_prob_y_zc, log_prob_z_x, loss, y_pred = self.infer_z(x)
+            self.log('log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
+            self.log('log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
+            self.log('log_prob_z_x', log_prob_z_x, on_step=False, on_epoch=True)
             self.log('loss', loss, on_step=False, on_epoch=True)
             self.eval_metric.update(y_pred, y)
 
