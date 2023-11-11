@@ -45,6 +45,7 @@ def make_model(args):
         return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task, alpha=args.alpha,
             lr_infer=args.lr_infer, n_infer_steps=args.n_infer_steps)
 
+
 def main(args):
     pl.seed_everything(args.seed)
     data_train, data_val_iid, data_val_ood, data_test, data_eval = make_data(args)
@@ -89,8 +90,8 @@ if __name__ == '__main__':
     parser.add_argument('--infer_batch_size', type=int, default=1024)
     parser.add_argument('--n_workers', type=int, default=20)
     parser.add_argument('--n_debug_examples', type=int)
-    parser.add_argument('--z_size', type=int, default=32)
-    parser.add_argument('--rank', type=int, default=32)
+    parser.add_argument('--z_size', type=int, default=256)
+    parser.add_argument('--rank', type=int, default=128)
     parser.add_argument('--h_sizes', nargs='+', type=int, default=[256, 256])
     parser.add_argument('--init_sd', type=float, default=0.01)
     parser.add_argument('--y_mult', type=float, default=1)
