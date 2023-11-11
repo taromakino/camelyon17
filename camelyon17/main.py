@@ -92,7 +92,7 @@ if __name__ == '__main__':
     parser.add_argument('--z_size', type=int, default=32)
     parser.add_argument('--rank', type=int, default=32)
     parser.add_argument('--h_sizes', nargs='+', type=int, default=[256, 256])
-    parser.add_argument('--init_sd', type=float, default=0.1)
+    parser.add_argument('--init_sd', type=float, default=0.01)
     parser.add_argument('--y_mult', type=float, default=1)
     parser.add_argument('--beta', type=float, default=1)
     parser.add_argument('--reg_mult', type=float, default=1e-5)
