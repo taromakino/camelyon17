@@ -166,14 +166,14 @@ class VAE(pl.LightningModule):
         # KL(q(z_c,z_s|x) || p(z_c|e)p(z_s|y,e))
         prior_dist = self.prior(y, e)
         kl = D.kl_divergence(posterior_dist, prior_dist).mean()
-        prior_norm = (prior_dist.loc ** 2).mean()
-        return log_prob_x_z, log_prob_y_zc, kl, prior_norm
+        z_norm = (z ** 2).sum(dim=1).mean()
+        return log_prob_x_z, log_prob_y_zc, kl, z_norm
 
     def training_step(self, batch, batch_idx):
         assert self.task == Task.VAE
         x, y, e = batch
-        log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.elbo(x, y, e)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
+        log_prob_x_z, log_prob_y_zc, kl, z_norm = self.elbo(x, y, e)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * z_norm
         self.log('train_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
         self.log('train_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
         self.log('train_kl', kl, on_step=False, on_epoch=True)
@@ -183,8 +183,8 @@ class VAE(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         assert self.task == Task.VAE
         x, y, e = batch
-        log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.elbo(x, y, e)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
+        log_prob_x_z, log_prob_y_zc, kl, z_norm = self.elbo(x, y, e)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * z_norm
         self.log('val_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
         self.log('val_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
         self.log('val_kl', kl, on_step=False, on_epoch=True)
