@@ -123,15 +123,13 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, h_sizes, init_sd, y_mult, beta, reg_mult, lr, weight_decay, alpha, lr_infer,
-            n_infer_steps):
+    def __init__(self, task, z_size, rank, h_sizes, init_sd, y_mult, beta, lr, weight_decay, alpha, lr_infer, n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
         self.z_size = z_size
         self.y_mult = y_mult
         self.beta = beta
-        self.reg_mult = reg_mult
         self.lr = lr
         self.weight_decay = weight_decay
         self.alpha = alpha
@@ -166,14 +164,13 @@ class VAE(pl.LightningModule):
         # KL(q(z_c,z_s|x) || p(z_c|e)p(z_s|y,e))
         prior_dist = self.prior(y, e)
         kl = D.kl_divergence(posterior_dist, prior_dist).mean()
-        z_norm = (z ** 2).sum(dim=1).mean()
-        return log_prob_x_z, log_prob_y_zc, kl, z_norm
+        return log_prob_x_z, log_prob_y_zc, kl
 
     def training_step(self, batch, batch_idx):
         assert self.task == Task.VAE
         x, y, e = batch
-        log_prob_x_z, log_prob_y_zc, kl, z_norm = self.elbo(x, y, e)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * z_norm
+        log_prob_x_z, log_prob_y_zc, kl = self.elbo(x, y, e)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl
         self.log('train_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
         self.log('train_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
         self.log('train_kl', kl, on_step=False, on_epoch=True)
@@ -183,8 +180,8 @@ class VAE(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         assert self.task == Task.VAE
         x, y, e = batch
-        log_prob_x_z, log_prob_y_zc, kl, z_norm = self.elbo(x, y, e)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * z_norm
+        log_prob_x_z, log_prob_y_zc, kl = self.elbo(x, y, e)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl
         self.log('val_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
         self.log('val_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
         self.log('val_kl', kl, on_step=False, on_epoch=True)
