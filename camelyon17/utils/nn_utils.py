@@ -39,9 +39,5 @@ def arr_to_cov(low_rank, diag):
         COV_OFFSET))
 
 
-def arr_to_tril(low_rank, diag):
-    return torch.linalg.cholesky(arr_to_cov(low_rank, diag))
-
-
 def n_weights(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
