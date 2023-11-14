@@ -234,7 +234,8 @@ class VAE(pl.LightningModule):
         batch_size = len(x)
         loss_values = []
         for y_value in range(N_CLASSES):
-            z_param = nn.Parameter(self.encoder(x).loc.detach())
+            _, _, posterior_dist = self.encoder(x)
+            z_param = nn.Parameter(posterior_dist.loc.detach())
             y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
             optim = Adam([z_param], lr=self.lr_infer)
             for _ in range(self.n_infer_steps):
