@@ -232,9 +232,12 @@ class VAE(pl.LightningModule):
         z_c, z_s = torch.chunk(z, 2, dim=1)
         y_pred = self.classifier(z_c).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
-        _, _, posterior_dist = self.encoder(x, y, e)
-        log_prob_z = posterior_dist.log_prob(z)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - log_prob_z
+        # log p(z_c)
+        causal_dist, spurious_dist, _ = self.encoder(x, y, e)
+        log_prob_zc = causal_dist.log_prob(z_c)
+        # log p(z_s)
+        log_prob_zs = spurious_dist.log_prob(z_s)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.causal_mult * log_prob_zc - self.spurious_mult * log_prob_zs
         return loss
 
     def classify(self, x):
@@ -253,7 +256,7 @@ class VAE(pl.LightningModule):
                     loss = self.infer_loss(x, y, e, z_param)
                     loss.mean().backward()
                     optim.step()
-                loss_values.append(loss.detach().unsqueeze(-1))
+                loss_values.append(loss.detach().clone().unsqueeze(-1))
                 y_values.append(y_value)
         loss_values = torch.hstack(loss_values)
         y_values = torch.tensor(y_values, device=self.device)
