@@ -233,9 +233,8 @@ class VAE(pl.LightningModule):
         y_pred = self.classifier(z_c).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
         _, _, posterior_dist = self.encoder(x, y, e)
-        prior_dist = self.prior(y, e)
-        kl = D.kl_divergence(posterior_dist, prior_dist)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl
+        log_prob_z = posterior_dist.log_prob(z)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - log_prob_z
         return loss
 
     def classify(self, x):
@@ -248,7 +247,6 @@ class VAE(pl.LightningModule):
                 e = torch.full((batch_size,), e_value, dtype=torch.long, device=self.device)
                 _, _, posterior_dist = self.encoder(x, y, e)
                 z_param = nn.Parameter(posterior_dist.loc.detach())
-                y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
                 optim = Adam([z_param], lr=self.lr_infer)
                 for _ in range(self.n_infer_steps):
                     optim.zero_grad()
