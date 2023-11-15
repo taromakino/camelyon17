@@ -74,8 +74,7 @@ def main(args):
     else:
         assert args.task == Task.CLASSIFY
         trainer = pl.Trainer(
-            logger=CSVLogger(os.path.join(args.dpath, args.task.value, f'alpha={args.alpha}', args.eval_stage.value),
-                name='', version=args.seed),
+            logger=CSVLogger(os.path.join(args.dpath, args.task.value, args.eval_stage.value), name='', version=args.seed),
             max_epochs=1,
             inference_mode=False)
         trainer.test(model, data_eval)
