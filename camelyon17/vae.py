@@ -190,10 +190,7 @@ class Encoder(nn.Module):
         cov = torch.zeros(batch_size, 2 * self.z_size, 2 * self.z_size, device=y.device)
         cov[:, :self.z_size, :self.z_size] = cov_causal
         cov[:, self.z_size:, self.z_size:] = cov_spurious
-        causal_dist = D.MultivariateNormal(mu_causal, cov_causal)
-        spurious_dist = D.MultivariateNormal(mu_spurious, cov_spurious)
-        joint_dist = D.MultivariateNormal(mu, cov)
-        return causal_dist, spurious_dist, joint_dist
+        return D.MultivariateNormal(mu, cov)
 
 
 class Decoder(nn.Module):
@@ -249,8 +246,7 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, reg_mult, lr, weight_decay, causal_mult,
-            spurious_mult, lr_infer, n_infer_steps):
+    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, reg_mult, lr, weight_decay, alpha, lr_infer, n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
@@ -260,8 +256,7 @@ class VAE(pl.LightningModule):
         self.reg_mult = reg_mult
         self.lr = lr
         self.weight_decay = weight_decay
-        self.causal_mult = causal_mult
-        self.spurious_mult = spurious_mult
+        self.alpha = alpha
         self.lr_infer = lr_infer
         self.n_infer_steps = n_infer_steps
         # q(z_c,z_s|x)
@@ -282,7 +277,7 @@ class VAE(pl.LightningModule):
 
     def elbo(self, x, y, e):
         # z_c,z_s ~ q(z_c,z_s|x)
-        _, _, posterior_dist = self.encoder(x, y, e)
+        posterior_dist = self.encoder(x, y, e)
         z = self.sample_z(posterior_dist)
         # E_q(z_c,z_s|x)[log p(x|z_c,z_s)]
         log_prob_x_z = self.decoder(x, z).mean()
@@ -324,12 +319,9 @@ class VAE(pl.LightningModule):
         z_c, z_s = torch.chunk(z, 2, dim=1)
         y_pred = self.classifier(z_c).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
-        # log p(z_c)
-        causal_dist, spurious_dist, _ = self.encoder(x, y, e)
-        log_prob_zc = causal_dist.log_prob(z_c)
-        # log p(z_s)
-        log_prob_zs = spurious_dist.log_prob(z_s)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.causal_mult * log_prob_zc - self.spurious_mult * log_prob_zs
+        # log q(z_c,z_s|x,y,e)
+        log_prob_z = self.encoder(x, y, e).log_prob(z)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_z
         return loss
 
     def classify(self, x):
@@ -340,8 +332,7 @@ class VAE(pl.LightningModule):
             y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
             for e_value in range(N_ENVS):
                 e = torch.full((batch_size,), e_value, dtype=torch.long, device=self.device)
-                _, _, posterior_dist = self.encoder(x, y, e)
-                z_param = nn.Parameter(posterior_dist.loc.detach())
+                z_param = nn.Parameter(self.encoder(x, y, e).loc.detach())
                 optim = Adam([z_param], lr=self.lr_infer)
                 for _ in range(self.n_infer_steps):
                     optim.zero_grad()

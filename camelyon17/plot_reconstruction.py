@@ -43,7 +43,7 @@ def main(args):
     for i, example_idx in enumerate(example_idxs):
         x_seed, y_seed, e_seed = dataloader.dataset.__getitem__(example_idx)
         x_seed, y_seed, e_seed = x_seed[None].to(model.device), y_seed[None].to(model.device), e_seed[None].to(model.device)
-        _, _, posterior_dist_seed = model.encoder(x_seed, y_seed, e_seed)
+        posterior_dist_seed = model.encoder(x_seed, y_seed, e_seed)
         z_seed = posterior_dist_seed.loc
         zc_seed, zs_seed = torch.chunk(z_seed, 2, dim=1)
         fig, axes = plt.subplots(2, args.n_cols, figsize=(2 * args.n_cols, 2 * 2))
