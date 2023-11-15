@@ -8,14 +8,14 @@ COV_OFFSET = 1e-6
 
 
 class MLP(nn.Module):
-    def __init__(self, input_size, h_sizes, output_size):
+    def __init__(self, input_size, x_sizes, output_size):
         super().__init__()
         module_list = []
         last_in_dim = input_size
-        for h_size in h_sizes:
-            module_list.append(nn.Linear(last_in_dim, h_size))
+        for hidden_dim in x_sizes:
+            module_list.append(nn.Linear(last_in_dim, hidden_dim))
             module_list.append(nn.LeakyReLU())
-            last_in_dim = h_size
+            last_in_dim = hidden_dim
         module_list.append(nn.Linear(last_in_dim, output_size))
         self.module_list = nn.Sequential(*module_list)
 
@@ -32,5 +32,9 @@ def arr_to_cov(low_rank, diag):
         COV_OFFSET))
 
 
-def n_weights(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+def arr_to_tril(low_rank, diag):
+    return torch.linalg.cholesky(arr_to_cov(low_rank, diag))
+
+
+def tril_to_cov(tril):
+    return torch.bmm(tril, tril.transpose(1, 2))
