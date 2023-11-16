@@ -8,8 +8,8 @@ setup(
         'matplotlib',
         'pandas',
         'pytorch-lightning',
+        'seaborn',
         'torch',
-        'torchvision',
-        'tqdm'
+        'torchvision'
     ]
 )
