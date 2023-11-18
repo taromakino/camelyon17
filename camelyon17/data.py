@@ -39,7 +39,7 @@ def subsample(rng, df, n_eval_examples):
         return df.iloc[idxs]
 
 
-def make_data(batch_size, n_workers, n_eval_examples):
+def make_data(batch_size, eval_batch_size, n_workers, n_eval_examples):
     rng = np.random.RandomState(0)
     dpath = os.path.join(os.environ['DATA_DPATH'], 'camelyon17_v1.0')
     df = pd.read_csv(os.path.join(dpath, 'metadata.csv'), index_col=0, dtype={'patient': 'str'})
@@ -79,10 +79,10 @@ def make_data(batch_size, n_workers, n_eval_examples):
 
     data_train = DataLoader(Camelyon17Dataset(dpath, df_train), shuffle=True, pin_memory=True, batch_size=batch_size,
         num_workers=n_workers)
-    data_val_id = DataLoader(Camelyon17Dataset(dpath, df_val_id), pin_memory=True, batch_size=batch_size,
+    data_val_id = DataLoader(Camelyon17Dataset(dpath, df_val_id), pin_memory=True, batch_size=eval_batch_size,
         num_workers=n_workers)
-    data_val_ood = DataLoader(Camelyon17Dataset(dpath, df_val_ood), pin_memory=True, batch_size=batch_size,
+    data_val_ood = DataLoader(Camelyon17Dataset(dpath, df_val_ood), pin_memory=True, batch_size=eval_batch_size,
         num_workers=n_workers)
-    data_test = DataLoader(Camelyon17Dataset(dpath, df_test), pin_memory=True, batch_size=batch_size,
+    data_test = DataLoader(Camelyon17Dataset(dpath, df_test), pin_memory=True, batch_size=eval_batch_size,
         num_workers=n_workers)
     return data_train, data_val_id, data_val_ood, data_test

@@ -10,8 +10,8 @@ from vae import VAE
 
 
 def make_data(args):
-    batch_size = args.infer_batch_size if args.task == Task.CLASSIFY else args.batch_size
-    data_train, data_val_iid, data_val_ood, data_test = data.make_data(batch_size, args.n_workers, args.n_eval_examples)
+    data_train, data_val_iid, data_val_ood, data_test = data.make_data(args.batch_size, args.eval_batch_size, args.n_workers,
+        args.n_eval_examples)
     if args.eval_stage is None:
         data_eval = None
     elif args.eval_stage == EvalStage.TRAIN:
@@ -94,9 +94,10 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--task', type=Task, choices=list(Task), required=True)
     parser.add_argument('--eval_stage', type=EvalStage, choices=list(EvalStage))
-    parser.add_argument('--batch_size', type=int, default=1024)
-    parser.add_argument('--n_workers', type=int, default=8)
+    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--eval_batch_size', type=int, default=1024)
     parser.add_argument('--n_eval_examples', type=int, default=1024)
+    parser.add_argument('--n_workers', type=int, default=8)
     parser.add_argument('--z_size', type=int, default=256)
     parser.add_argument('--rank', type=int, default=128)
     parser.add_argument('--h_sizes', nargs='+', type=int, default=[512, 512])
@@ -104,7 +105,7 @@ if __name__ == '__main__':
     parser.add_argument('--beta', type=float, default=1)
     parser.add_argument('--init_sd', type=float, default=0.01)
     parser.add_argument('--reg_mult', type=float, default=1e-5)
-    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--weight_decay', type=float, default=1e-5)
     parser.add_argument('--alpha', type=float, default=1)
     parser.add_argument('--lr_infer', type=float, default=1)
