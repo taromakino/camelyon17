@@ -13,7 +13,6 @@ from utils.enums import Task
 from utils.nn_utils import MLP, arr_to_cov
 
 
-PRIOR_INIT_SD = 0.01
 IMG_EMBED_SHAPE = (24, 6, 6)
 IMG_EMBED_SIZE = np.prod(IMG_EMBED_SHAPE)
 
@@ -78,22 +77,22 @@ class Decoder(nn.Module):
 
 
 class Prior(nn.Module):
-    def __init__(self, z_size, rank):
+    def __init__(self, z_size, rank, init_sd):
         super().__init__()
         self.z_size = z_size
         self.mu_causal = nn.Parameter(torch.zeros(N_ENVS, z_size))
         self.low_rank_causal = nn.Parameter(torch.zeros(N_ENVS, z_size, rank))
         self.diag_causal = nn.Parameter(torch.zeros(N_ENVS, z_size))
-        nn.init.normal_(self.mu_causal, 0, PRIOR_INIT_SD)
-        nn.init.normal_(self.low_rank_causal, 0, PRIOR_INIT_SD)
-        nn.init.normal_(self.diag_causal, 0, PRIOR_INIT_SD)
+        nn.init.normal_(self.mu_causal, 0, init_sd)
+        nn.init.normal_(self.low_rank_causal, 0, init_sd)
+        nn.init.normal_(self.diag_causal, 0, init_sd)
         # p(z_s|y,e)
         self.mu_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size))
         self.low_rank_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size, rank))
         self.diag_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size))
-        nn.init.normal_(self.mu_spurious, 0, PRIOR_INIT_SD)
-        nn.init.normal_(self.low_rank_spurious, 0, PRIOR_INIT_SD)
-        nn.init.normal_(self.diag_spurious, 0, PRIOR_INIT_SD)
+        nn.init.normal_(self.mu_spurious, 0, init_sd)
+        nn.init.normal_(self.low_rank_spurious, 0, init_sd)
+        nn.init.normal_(self.diag_spurious, 0, init_sd)
 
     def forward(self, y, e):
         batch_size = len(y)
@@ -112,7 +111,8 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, reg_mult, lr, weight_decay, alpha, lr_infer, n_infer_steps):
+    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, init_sd, reg_mult, lr, weight_decay, alpha, lr_infer,
+            n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
@@ -130,7 +130,7 @@ class VAE(pl.LightningModule):
         # p(x|z_c, z_s)
         self.decoder = Decoder(z_size, h_sizes)
         # p(z_c,z_s|y,e)
-        self.prior = Prior(z_size, rank)
+        self.prior = Prior(z_size, rank, init_sd)
         # p(y|z)
         self.classifier = MLP(z_size, h_sizes, 1)
         self.eval_metric = Accuracy('binary')
