@@ -15,7 +15,6 @@ class MLP(nn.Module):
         for h_size in h_sizes:
             module_list.append(nn.Linear(last_size, h_size))
             module_list.append(nn.ReLU())
-            module_list.append(nn.BatchNorm1d(h_size))
             last_size = h_size
         module_list.append(nn.Linear(last_size, output_size))
         self.module_list = nn.Sequential(*module_list)
