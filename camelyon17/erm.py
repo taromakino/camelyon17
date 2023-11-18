@@ -13,34 +13,32 @@ class ERMBase(pl.LightningModule):
         self.save_hyperparameters()
         self.lr = lr
         self.weight_decay = weight_decay
-        self.train_metric = Accuracy('binary')
-        self.val_metric = Accuracy('binary')
-        self.eval_metric = Accuracy('binary')
+        self.train_acc = Accuracy('binary')
+        self.val_acc = Accuracy('binary')
+        self.eval_acc = Accuracy('binary')
 
     def training_step(self, batch, batch_idx):
         y_pred, y = self(*batch)
         loss = F.binary_cross_entropy_with_logits(y_pred, y.float())
-        self.train_metric.update(y_pred, y)
+        self.train_acc.update(y_pred, y)
         return loss
 
     def on_train_epoch_end(self):
-        self.log('train_metric', self.train_metric.compute())
+        self.log('train_acc', self.train_acc.compute())
 
     def validation_step(self, batch, batch_idx):
         y_pred, y = self(*batch)
-        loss = F.binary_cross_entropy_with_logits(y_pred, y.float())
-        self.log('val_loss', loss, on_step=False, on_epoch=True)
-        self.val_metric.update(y_pred, y)
+        self.val_acc.update(y_pred, y)
 
     def on_validation_epoch_end(self):
-        self.log('val_metric', self.val_metric.compute())
+        self.log('val_acc', self.val_acc.compute())
 
     def test_step(self, batch, batch_idx):
         y_pred, y = self(*batch)
-        self.eval_metric.update(y_pred, y)
+        self.eval_acc.update(y_pred, y)
 
     def on_test_epoch_end(self):
-        self.log('eval_metric', self.eval_metric.compute())
+        self.log('eval_acc', self.eval_acc.compute())
 
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
