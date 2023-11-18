@@ -1,3 +1,4 @@
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.distributions as D
@@ -13,7 +14,8 @@ from utils.nn_utils import MLP, arr_to_cov
 
 
 PRIOR_INIT_SD = 0.01
-CNN_SIZE = 512
+IMG_EMBED_SHAPE = (24, 6, 6)
+IMG_EMBED_SIZE = np.prod(IMG_EMBED_SHAPE)
 
 
 class Encoder(nn.Module):
@@ -22,12 +24,12 @@ class Encoder(nn.Module):
         self.z_size = z_size
         self.rank = rank
         self.cnn = CNN()
-        self.mu_causal = MLP(CNN_SIZE, h_sizes, N_ENVS * z_size)
-        self.low_rank_causal = MLP(CNN_SIZE, h_sizes, N_ENVS * z_size * rank)
-        self.diag_causal = MLP(CNN_SIZE, h_sizes, N_ENVS * z_size)
-        self.mu_spurious = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
-        self.low_rank_spurious = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size * rank)
-        self.diag_spurious = MLP(CNN_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
+        self.mu_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size)
+        self.low_rank_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size * rank)
+        self.diag_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size)
+        self.mu_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
+        self.low_rank_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size * rank)
+        self.diag_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
 
     def forward(self, x, y, e):
         batch_size = len(x)
@@ -65,12 +67,12 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
-        self.mlp = MLP(2 * z_size, h_sizes, CNN_SIZE // 2)
+        self.mlp = MLP(2 * z_size, h_sizes, IMG_EMBED_SIZE // 2)
         self.dcnn = DCNN()
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.mlp(z).view(batch_size, CNN_SIZE // 2, 1, 1)
+        x_pred = self.mlp(z).view(batch_size, IMG_EMBED_SIZE // 2, 1, 1)
         x_pred = self.dcnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 

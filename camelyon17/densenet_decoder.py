@@ -1,4 +1,3 @@
-from collections import OrderedDict
 from typing import List, Tuple
 
 import torch
@@ -14,12 +13,12 @@ class _DenseLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.norm1 = nn.BatchNorm2d(num_input_features)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.ConvTranspose2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)
+        self.relu1 = nn.ReLU(True)
+        self.conv1 = nn.ConvTranspose2d(num_input_features, bn_size * growth_rate, 1, stride=1, bias=False)
 
         self.norm2 = nn.BatchNorm2d(bn_size * growth_rate)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.ConvTranspose2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)
+        self.relu2 = nn.ReLU(True)
+        self.conv2 = nn.ConvTranspose2d(bn_size * growth_rate, growth_rate, 3, stride=1, padding=1, bias=False)
 
         self.drop_rate = float(drop_rate)
         self.memory_efficient = memory_efficient
@@ -108,9 +107,9 @@ class _Transition(nn.Sequential):
     def __init__(self, num_input_features: int, num_output_features: int) -> None:
         super().__init__()
         self.norm = nn.BatchNorm2d(num_input_features)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.ConvTranspose2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False)
-        self.pool = nn.ConvTranspose2d(num_output_features, num_output_features, kernel_size=2, stride=2)
+        self.relu = nn.ReLU(True)
+        self.conv = nn.ConvTranspose2d(num_input_features, num_output_features, 1, stride=1, bias=False)
+        self.pool = nn.ConvTranspose2d(num_output_features, num_output_features, 2, stride=2)
 
 
 class DenseNet(nn.Module):
@@ -131,9 +130,9 @@ class DenseNet(nn.Module):
 
     def __init__(
         self,
-        growth_rate: int = 32,
-        block_config: Tuple[int, int, int, int] = (8, 8, 8, 8),
-        num_init_features: int = 256,
+        growth_rate: int = 8,
+        block_config: Tuple[int, int, int, int] = (3, 3, 3),
+        num_init_features: int = 24,
         bn_size: int = 4,
         drop_rate: float = 0,
         memory_efficient: bool = False,
@@ -142,13 +141,8 @@ class DenseNet(nn.Module):
         super().__init__()
 
         # First convolution
-        self.features = nn.Sequential(
-            OrderedDict(
-                [
-                    ("upsample", nn.Upsample(scale_factor=6))
-                ]
-            )
-        )
+        self.features = nn.Sequential()
+        self.features.add_module("tconv0", nn.ConvTranspose2d(num_init_features, num_init_features, 2, stride=2))
 
         # Each denseblock
         num_features = num_init_features
@@ -164,16 +158,21 @@ class DenseNet(nn.Module):
             self.features.add_module("denseblock%d" % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
-                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
+                trans = _Transition(num_features, num_features // 2)
                 self.features.add_module("transition%d" % (i + 1), trans)
                 num_features = num_features // 2
 
-        self.features.add_module("out", nn.ConvTranspose2d(num_features, 3, kernel_size=7, stride=2, padding=3,
-            output_padding=1, bias=False))
+        self.features.add_module("norm4", nn.BatchNorm2d(num_features))
+        self.features.add_module("relu4", nn.ReLU(True))
+        self.features.add_module("tconv4", nn.ConvTranspose2d(num_features, num_features // 2, 2, stride=2, bias=False))
+        num_features = num_features // 2
+        self.features.add_module("norm5", nn.BatchNorm2d(num_features))
+        self.features.add_module("relu5", nn.ReLU(True))
+        self.features.add_module("tconv5", nn.ConvTranspose2d(num_features, 3, 3, stride=1, padding=1, bias=False))
 
         # Official init from torch repo.
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
+            if isinstance(m, nn.ConvTranspose2d):
                 nn.init.kaiming_normal_(m.weight)
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
