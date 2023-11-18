@@ -168,11 +168,12 @@ class DenseNet(nn.Module):
                 self.features.add_module("transition%d" % (i + 1), trans)
                 num_features = num_features // 2
 
-        self.features.add_module("out", nn.ConvTranspose2d(num_features, 3, kernel_size=2, stride=2, bias=False))
+        self.features.add_module("out", nn.ConvTranspose2d(num_features, 3, kernel_size=7, stride=2, padding=3,
+            output_padding=1, bias=False))
 
         # Official init from torch repo.
         for m in self.modules():
-            if isinstance(m, nn.ConvTranspose2d):
+            if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight)
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
