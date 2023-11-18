@@ -67,12 +67,12 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
-        self.mlp = MLP(2 * z_size, h_sizes, IMG_EMBED_SIZE // 2)
+        self.mlp = MLP(2 * z_size, h_sizes, IMG_EMBED_SIZE)
         self.dcnn = DCNN()
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.mlp(z).view(batch_size, IMG_EMBED_SIZE // 2, 1, 1)
+        x_pred = self.mlp(z).view(batch_size, *IMG_EMBED_SHAPE)
         x_pred = self.dcnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
