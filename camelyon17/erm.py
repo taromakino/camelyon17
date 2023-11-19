@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from utils.nn_utils import MLP
-from vae import IMG_EMBED_SIZE, CNN
+from vae import CNN_SIZE, CNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
 
@@ -13,32 +13,34 @@ class ERMBase(pl.LightningModule):
         self.save_hyperparameters()
         self.lr = lr
         self.weight_decay = weight_decay
-        self.train_acc = Accuracy('binary')
-        self.val_acc = Accuracy('binary')
-        self.eval_acc = Accuracy('binary')
+        self.train_metric = Accuracy('binary')
+        self.val_metric = Accuracy('binary')
+        self.eval_metric = Accuracy('binary')
 
     def training_step(self, batch, batch_idx):
         y_pred, y = self(*batch)
         loss = F.binary_cross_entropy_with_logits(y_pred, y.float())
-        self.train_acc.update(y_pred, y)
+        self.train_metric.update(y_pred, y)
         return loss
 
     def on_train_epoch_end(self):
-        self.log('train_acc', self.train_acc.compute())
+        self.log('train_metric', self.train_metric.compute())
 
     def validation_step(self, batch, batch_idx):
         y_pred, y = self(*batch)
-        self.val_acc.update(y_pred, y)
+        loss = F.binary_cross_entropy_with_logits(y_pred, y.float())
+        self.log('val_loss', loss, on_step=False, on_epoch=True)
+        self.val_metric.update(y_pred, y)
 
     def on_validation_epoch_end(self):
-        self.log('val_acc', self.val_acc.compute())
+        self.log('val_metric', self.val_metric.compute())
 
     def test_step(self, batch, batch_idx):
         y_pred, y = self(*batch)
-        self.eval_acc.update(y_pred, y)
+        self.eval_metric.update(y_pred, y)
 
     def on_test_epoch_end(self):
-        self.log('eval_acc', self.eval_acc.compute())
+        self.log('eval_metric', self.eval_metric.compute())
 
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
@@ -49,7 +51,7 @@ class ERM_X(ERMBase):
         super().__init__(lr, weight_decay)
         self.save_hyperparameters()
         self.cnn = CNN()
-        self.mlp = MLP(IMG_EMBED_SIZE, h_sizes, 1)
+        self.mlp = MLP(CNN_SIZE, h_sizes, 1)
 
     def forward(self, x, y, e):
         batch_size = len(x)
