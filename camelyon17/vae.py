@@ -150,12 +150,12 @@ class Encoder(nn.Module):
         self.z_size = z_size
         self.rank = rank
         self.cnn = CNN()
-        self.mu_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size, True)
-        self.low_rank_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size * rank, True)
-        self.diag_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size, True)
-        self.mu_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size, True)
-        self.low_rank_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size * rank, True)
-        self.diag_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size, True)
+        self.mu_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size)
+        self.low_rank_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size * rank)
+        self.diag_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size)
+        self.mu_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
+        self.low_rank_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size * rank)
+        self.diag_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
 
     def forward(self, x, y, e):
         batch_size = len(x)
@@ -193,7 +193,7 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
-        self.mlp = MLP(2 * z_size, h_sizes, IMG_EMBED_SIZE, False)
+        self.mlp = MLP(2 * z_size, h_sizes, IMG_EMBED_SIZE)
         self.dcnn = DCNN()
 
     def forward(self, x, z):
@@ -257,7 +257,7 @@ class VAE(pl.LightningModule):
         # p(z_c,z_s|y,e)
         self.prior = Prior(z_size, rank, init_sd)
         # p(y|z)
-        self.classifier = MLP(z_size, h_sizes, 1, False)
+        self.classifier = MLP(z_size, h_sizes, 1)
         self.val_acc = Accuracy('binary')
         self.test_acc = Accuracy('binary')
 
@@ -338,14 +338,20 @@ class VAE(pl.LightningModule):
         y_pred = y_candidates[opt_loss.indices]
         return opt_loss.values.mean(), y_pred
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx, dataloader_idx):
         x, y, e = batch
         with torch.set_grad_enabled(True):
             loss, y_pred = self.infer_z(x)
-            self.val_acc.update(y_pred, y)
+            if dataloader_idx == 0:
+                self.val_acc.update(y_pred, y)
+            elif dataloader_idx == 1:
+                self.test_acc.update(y_pred, y)
+            else:
+                raise ValueError
 
     def on_validation_epoch_end(self):
         self.log('val_acc', self.val_acc.compute())
+        self.log('test_acc', self.test_acc.compute())
 
     def test_step(self, batch, batch_idx):
         x, y, e = batch

@@ -8,15 +8,13 @@ COV_OFFSET = 1e-6
 
 
 class MLP(nn.Module):
-    def __init__(self, input_size, h_sizes, output_size, is_bn):
+    def __init__(self, input_size, h_sizes, output_size):
         super().__init__()
         module_list = []
         last_size = input_size
         for h_size in h_sizes:
             module_list.append(nn.Linear(last_size, h_size))
             module_list.append(nn.LeakyReLU())
-            if is_bn:
-                module_list.append(nn.BatchNorm1d(h_size))
             last_size = h_size
         module_list.append(nn.Linear(last_size, output_size))
         self.module_list = nn.Sequential(*module_list)

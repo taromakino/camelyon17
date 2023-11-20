@@ -76,7 +76,7 @@ def main(args):
             check_val_every_n_epoch=args.check_val_every_n_epoch,
             deterministic=True,
             inference_mode=False)
-        trainer.fit(model, data_train, data_test)
+        trainer.fit(model, data_train, [data_val_ood, data_test])
     else:
         assert args.task == Task.CLASSIFY
         trainer = pl.Trainer(
