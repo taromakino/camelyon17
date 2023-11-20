@@ -76,7 +76,7 @@ def main(args):
             check_val_every_n_epoch=args.check_val_every_n_epoch,
             deterministic=True,
             inference_mode=False)
-        trainer.fit(model, data_train, data_val_ood)
+        trainer.fit(model, data_train, data_test)
     else:
         assert args.task == Task.CLASSIFY
         trainer = pl.Trainer(
@@ -94,7 +94,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--task', type=Task, choices=list(Task), required=True)
     parser.add_argument('--eval_stage', type=EvalStage, choices=list(EvalStage))
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--eval_batch_size', type=int, default=1024)
     parser.add_argument('--n_eval_examples', type=int, default=1024)
     parser.add_argument('--n_workers', type=int, default=8)
