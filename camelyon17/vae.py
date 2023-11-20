@@ -15,37 +15,42 @@ IMG_EMBED_SIZE = np.prod(IMG_EMBED_SHAPE)
 
 
 class DenseLayer(nn.Module):
-    def __init__(self, in_channels, growth_rate, mode='encode'):
-        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
+    def __init__(self, in_channels, growth_rate, is_encoding):
         super(DenseLayer, self).__init__()
-        self.BN1 = nn.BatchNorm2d(in_channels)
+        self.is_encoding = is_encoding
         self.relu1 = nn.ReLU()
-        if mode == 'encode':
+        self.relu2 = nn.ReLU()
+        if is_encoding:
             self.conv1 = nn.Conv2d(in_channels, 4 * growth_rate, 1, 1, 0)
             self.conv2 = nn.Conv2d(4 * growth_rate, growth_rate, 3, 1, 1)
-        elif mode == 'decode':
+            self.BN1 = nn.BatchNorm2d(in_channels)
+            self.BN2 = nn.BatchNorm2d(4 * growth_rate)
+        else:
             self.conv1 = nn.ConvTranspose2d(in_channels, 4 * growth_rate, 1, 1, 0)
             self.conv2 = nn.ConvTranspose2d(4 * growth_rate, growth_rate, 3, 1, 1)
-        self.BN2 = nn.BatchNorm2d(4 * growth_rate)
-        self.relu2 = nn.ReLU()
 
     def forward(self, x):
-        bn1 = self.BN1(x)
-        relu1 = self.relu1(bn1)
-        conv1 = self.conv1(relu1)
-        bn2 = self.BN2(conv1)
-        relu2 = self.relu2(bn2)
-        conv2 = self.conv2(relu2)
+        if self.is_encoding:
+            bn1 = self.BN1(x)
+            relu1 = self.relu1(bn1)
+            conv1 = self.conv1(relu1)
+            bn2 = self.BN2(conv1)
+            relu2 = self.relu2(bn2)
+            conv2 = self.conv2(relu2)
+        else:
+            relu1 = self.relu1(x)
+            conv1 = self.conv1(relu1)
+            relu2 = self.relu2(conv1)
+            conv2 = self.conv2(relu2)
         return torch.cat([x, conv2], dim=1)
 
 
 class DenseBlock(nn.Module):
-    def __init__(self, in_channels, growth_rate, mode='encode'):
-        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
+    def __init__(self, in_channels, growth_rate, is_encoding):
         super(DenseBlock, self).__init__()
-        self.DL1 = DenseLayer(in_channels + (growth_rate * 0), growth_rate, mode)
-        self.DL2 = DenseLayer(in_channels + (growth_rate * 1), growth_rate, mode)
-        self.DL3 = DenseLayer(in_channels + (growth_rate * 2), growth_rate, mode)
+        self.DL1 = DenseLayer(in_channels + (growth_rate * 0), growth_rate, is_encoding)
+        self.DL2 = DenseLayer(in_channels + (growth_rate * 1), growth_rate, is_encoding)
+        self.DL3 = DenseLayer(in_channels + (growth_rate * 2), growth_rate, is_encoding)
 
     def forward(self, x):
         DL1 = self.DL1(x)
@@ -55,24 +60,29 @@ class DenseBlock(nn.Module):
 
 
 class TransitionBlock(nn.Module):
-    def __init__(self, in_channels, c_rate, mode='encode'):
-        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
+    def __init__(self, in_channels, c_rate, is_encoding):
         super(TransitionBlock, self).__init__()
         out_channels = int(c_rate * in_channels)
-        self.BN = nn.BatchNorm2d(in_channels)
+        self.is_encoding = is_encoding
         self.relu = nn.ReLU()
-        if mode == 'encode':
+        if is_encoding:
             self.conv = nn.Conv2d(in_channels, out_channels, 1, 1, 0)
             self.resize_layer = nn.AvgPool2d(2, 2)
-        elif mode == 'decode':
+            self.BN = nn.BatchNorm2d(in_channels)
+        else:
             self.conv = nn.ConvTranspose2d(in_channels, out_channels, 1, 1, 0)
             self.resize_layer = nn.ConvTranspose2d(out_channels, out_channels, 2, 2, 0)
 
     def forward(self, x):
-        bn = self.BN(x)
-        relu = self.relu(bn)
-        conv = self.conv(relu)
-        output = self.resize_layer(conv)
+        if self.is_encoding:
+            bn = self.BN(x)
+            relu = self.relu(bn)
+            conv = self.conv(relu)
+            output = self.resize_layer(conv)
+        else:
+            relu = self.relu(x)
+            conv = self.conv(relu)
+            output = self.resize_layer(conv)
         return output
 
 
@@ -115,10 +125,8 @@ class DCNN(nn.Module):
         self.db2 = DenseBlock(24, 8, 'decode')
         self.tb2 = TransitionBlock(48, 0.5, 'decode')
         self.db3 = DenseBlock(24, 8, 'decode')
-        self.BN1 = nn.BatchNorm2d(48)
         self.relu1 = nn.ReLU()
         self.de_conv = nn.ConvTranspose2d(48, 24, 2, 2, 0)
-        self.BN2 = nn.BatchNorm2d(24)
         self.relu2 = nn.ReLU()
         self.out_conv = nn.ConvTranspose2d(24, 3, 3, 1, 1)
 
@@ -129,11 +137,9 @@ class DCNN(nn.Module):
         db2 = self.db2(tb1)
         tb2 = self.tb2(db2)
         db3 = self.db3(tb2)
-        bn1 = self.BN1(db3)
-        relu1 = self.relu1(bn1)
+        relu1 = self.relu1(db3)
         de_conv = self.de_conv(relu1)
-        bn2 = self.BN2(de_conv)
-        relu2 = self.relu2(bn2)
+        relu2 = self.relu2(de_conv)
         output = self.out_conv(relu2)
         return output
 
