@@ -11,7 +11,7 @@ from vae import VAE
 
 def make_data(args):
     data_train, data_val_iid, data_val_ood, data_test = data.make_data(args.batch_size, args.eval_batch_size, args.n_workers,
-        args.n_eval_examples)
+        args.n_eval_examples if args.task == Task.CLASSIFY else None)
     if args.eval_stage is None:
         data_eval = None
     elif args.eval_stage == EvalStage.TRAIN:
@@ -42,8 +42,7 @@ def make_model(args):
             args.lr, args.weight_decay, args.alpha, args.lr_infer, args.n_infer_steps)
     else:
         assert args.task == Task.CLASSIFY
-        return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task, alpha=args.alpha,
-            lr_infer=args.lr_infer, n_infer_steps=args.n_infer_steps)
+        return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task)
 
 
 def main(args):
@@ -80,8 +79,7 @@ def main(args):
     else:
         assert args.task == Task.CLASSIFY
         trainer = pl.Trainer(
-            logger=CSVLogger(os.path.join(args.dpath, args.task.value, f'alpha={args.alpha}', args.eval_stage.value),
-                name='', version=args.seed),
+            logger=CSVLogger(os.path.join(args.dpath, args.task.value, args.eval_stage.value), name='', version=args.seed),
             max_epochs=1,
             deterministic=True,
             inference_mode=False)
