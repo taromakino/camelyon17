@@ -11,7 +11,7 @@ from vae import VAE
 
 def make_data(args):
     data_train, data_val_iid, data_val_ood, data_test = data.make_data(args.batch_size, args.eval_batch_size, args.n_workers,
-        args.n_eval_examples if args.task == Task.CLASSIFY else None)
+        args.n_eval_examples if args.task == Task.VAE else None)
     if args.eval_stage is None:
         data_eval = None
     elif args.eval_stage == EvalStage.TRAIN:
