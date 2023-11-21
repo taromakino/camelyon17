@@ -15,42 +15,37 @@ IMG_EMBED_SIZE = np.prod(IMG_EMBED_SHAPE)
 
 
 class DenseLayer(nn.Module):
-    def __init__(self, in_channels, growth_rate, is_encoding):
+    def __init__(self, in_channels, growth_rate, mode='encode'):
+        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
         super(DenseLayer, self).__init__()
-        self.is_encoding = is_encoding
+        self.BN1 = nn.BatchNorm2d(in_channels)
         self.relu1 = nn.ReLU()
-        self.relu2 = nn.ReLU()
-        if is_encoding:
+        if mode == 'encode':
             self.conv1 = nn.Conv2d(in_channels, 4 * growth_rate, 1, 1, 0)
             self.conv2 = nn.Conv2d(4 * growth_rate, growth_rate, 3, 1, 1)
-            self.BN1 = nn.BatchNorm2d(in_channels)
-            self.BN2 = nn.BatchNorm2d(4 * growth_rate)
-        else:
+        elif mode == 'decode':
             self.conv1 = nn.ConvTranspose2d(in_channels, 4 * growth_rate, 1, 1, 0)
             self.conv2 = nn.ConvTranspose2d(4 * growth_rate, growth_rate, 3, 1, 1)
+        self.BN2 = nn.BatchNorm2d(4 * growth_rate)
+        self.relu2 = nn.ReLU()
 
     def forward(self, x):
-        if self.is_encoding:
-            bn1 = self.BN1(x)
-            relu1 = self.relu1(bn1)
-            conv1 = self.conv1(relu1)
-            bn2 = self.BN2(conv1)
-            relu2 = self.relu2(bn2)
-            conv2 = self.conv2(relu2)
-        else:
-            relu1 = self.relu1(x)
-            conv1 = self.conv1(relu1)
-            relu2 = self.relu2(conv1)
-            conv2 = self.conv2(relu2)
+        bn1 = self.BN1(x)
+        relu1 = self.relu1(bn1)
+        conv1 = self.conv1(relu1)
+        bn2 = self.BN2(conv1)
+        relu2 = self.relu2(bn2)
+        conv2 = self.conv2(relu2)
         return torch.cat([x, conv2], dim=1)
 
 
 class DenseBlock(nn.Module):
-    def __init__(self, in_channels, growth_rate, is_encoding):
+    def __init__(self, in_channels, growth_rate, mode='encode'):
+        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
         super(DenseBlock, self).__init__()
-        self.DL1 = DenseLayer(in_channels + (growth_rate * 0), growth_rate, is_encoding)
-        self.DL2 = DenseLayer(in_channels + (growth_rate * 1), growth_rate, is_encoding)
-        self.DL3 = DenseLayer(in_channels + (growth_rate * 2), growth_rate, is_encoding)
+        self.DL1 = DenseLayer(in_channels + (growth_rate * 0), growth_rate, mode)
+        self.DL2 = DenseLayer(in_channels + (growth_rate * 1), growth_rate, mode)
+        self.DL3 = DenseLayer(in_channels + (growth_rate * 2), growth_rate, mode)
 
     def forward(self, x):
         DL1 = self.DL1(x)
@@ -60,29 +55,24 @@ class DenseBlock(nn.Module):
 
 
 class TransitionBlock(nn.Module):
-    def __init__(self, in_channels, c_rate, is_encoding):
+    def __init__(self, in_channels, c_rate, mode='encode'):
+        assert mode in ['encode', 'decode'], "Mode must be either 'encode' or 'decode'."
         super(TransitionBlock, self).__init__()
         out_channels = int(c_rate * in_channels)
-        self.is_encoding = is_encoding
+        self.BN = nn.BatchNorm2d(in_channels)
         self.relu = nn.ReLU()
-        if is_encoding:
+        if mode == 'encode':
             self.conv = nn.Conv2d(in_channels, out_channels, 1, 1, 0)
             self.resize_layer = nn.AvgPool2d(2, 2)
-            self.BN = nn.BatchNorm2d(in_channels)
-        else:
+        elif mode == 'decode':
             self.conv = nn.ConvTranspose2d(in_channels, out_channels, 1, 1, 0)
             self.resize_layer = nn.ConvTranspose2d(out_channels, out_channels, 2, 2, 0)
 
     def forward(self, x):
-        if self.is_encoding:
-            bn = self.BN(x)
-            relu = self.relu(bn)
-            conv = self.conv(relu)
-            output = self.resize_layer(conv)
-        else:
-            relu = self.relu(x)
-            conv = self.conv(relu)
-            output = self.resize_layer(conv)
+        bn = self.BN(x)
+        relu = self.relu(bn)
+        conv = self.conv(relu)
+        output = self.resize_layer(conv)
         return output
 
 
@@ -92,11 +82,11 @@ class CNN(nn.Module):
         self.init_conv = nn.Conv2d(3, 24, 3, 2, 1)
         self.BN1 = nn.BatchNorm2d(24)
         self.relu1 = nn.ReLU()
-        self.db1 = DenseBlock(24, 8, True)
-        self.tb1 = TransitionBlock(48, 0.5, True)
-        self.db2 = DenseBlock(24, 8, True)
-        self.tb2 = TransitionBlock(48, 0.5, True)
-        self.db3 = DenseBlock(24, 8, True)
+        self.db1 = DenseBlock(24, 8, 'encode')
+        self.tb1 = TransitionBlock(48, 0.5, 'encode')
+        self.db2 = DenseBlock(24, 8, 'encode')
+        self.tb2 = TransitionBlock(48, 0.5, 'encode')
+        self.db3 = DenseBlock(24, 8, 'encode')
         self.BN2 = nn.BatchNorm2d(48)
         self.relu2 = nn.ReLU()
         self.down_conv = nn.Conv2d(48, 24, 2, 2, 0)
@@ -120,13 +110,15 @@ class DCNN(nn.Module):
     def __init__(self):
         super(DCNN, self).__init__()
         self.up_conv = nn.ConvTranspose2d(24, 24, 2, 2, 0)
-        self.db1 = DenseBlock(24, 8, False)
-        self.tb1 = TransitionBlock(48, 0.5, False)
-        self.db2 = DenseBlock(24, 8, False)
-        self.tb2 = TransitionBlock(48, 0.5, False)
-        self.db3 = DenseBlock(24, 8, False)
+        self.db1 = DenseBlock(24, 8, 'decode')
+        self.tb1 = TransitionBlock(48, 0.5, 'decode')
+        self.db2 = DenseBlock(24, 8, 'decode')
+        self.tb2 = TransitionBlock(48, 0.5, 'decode')
+        self.db3 = DenseBlock(24, 8, 'decode')
+        self.BN1 = nn.BatchNorm2d(48)
         self.relu1 = nn.ReLU()
         self.de_conv = nn.ConvTranspose2d(48, 24, 2, 2, 0)
+        self.BN2 = nn.BatchNorm2d(24)
         self.relu2 = nn.ReLU()
         self.out_conv = nn.ConvTranspose2d(24, 3, 3, 1, 1)
 
@@ -137,9 +129,11 @@ class DCNN(nn.Module):
         db2 = self.db2(tb1)
         tb2 = self.tb2(db2)
         db3 = self.db3(tb2)
-        relu1 = self.relu1(db3)
+        bn1 = self.BN1(db3)
+        relu1 = self.relu1(bn1)
         de_conv = self.de_conv(relu1)
-        relu2 = self.relu2(de_conv)
+        bn2 = self.BN2(de_conv)
+        relu2 = self.relu2(bn2)
         output = self.out_conv(relu2)
         return output
 
@@ -238,13 +232,15 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, init_sd, lr, weight_decay, alpha, lr_infer, n_infer_steps):
+    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, reg_mult, init_sd, lr, weight_decay, alpha, lr_infer,
+            n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
         self.z_size = z_size
         self.y_mult = y_mult
         self.beta = beta
+        self.reg_mult = reg_mult
         self.lr = lr
         self.weight_decay = weight_decay
         self.alpha = alpha
@@ -280,17 +276,16 @@ class VAE(pl.LightningModule):
         # KL(q(z_c,z_s|x) || p(z_c|e)p(z_s|y,e))
         prior_dist = self.prior(y, e)
         kl = D.kl_divergence(posterior_dist, prior_dist).mean()
-        entropy = posterior_dist.entropy().mean()
-        log_prob_z_ye = -entropy - kl
-        return log_prob_x_z, log_prob_y_zc, kl, log_prob_z_ye
+        prior_norm = (prior_dist.loc ** 2).mean()
+        return log_prob_x_z, log_prob_y_zc, kl, prior_norm
 
     def training_step(self, batch, batch_idx):
         x, y, e = batch
-        log_prob_x_z, log_prob_y_zc, kl, log_prob_z_ye = self.loss(x, y, e)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl
+        log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
         self.log('train_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
         self.log('train_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
-        self.log('train_log_prob_z_ye', log_prob_z_ye, on_step=False, on_epoch=True)
+        self.log('train_kl', kl, on_step=False, on_epoch=True)
         self.log('train_loss', loss, on_step=False, on_epoch=True)
         return loss
 
