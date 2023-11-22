@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from utils.nn_utils import MLP
-from vae import CNN_SIZE, CNN
+from vae import IMG_EMBED_SIZE, CNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
 
@@ -51,7 +51,7 @@ class ERM_X(ERMBase):
         super().__init__(lr, weight_decay)
         self.save_hyperparameters()
         self.cnn = CNN()
-        self.mlp = MLP(CNN_SIZE, h_sizes, 1)
+        self.mlp = MLP(IMG_EMBED_SIZE, h_sizes, 1)
 
     def forward(self, x, y, e):
         batch_size = len(x)
