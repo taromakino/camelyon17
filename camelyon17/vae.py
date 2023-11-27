@@ -9,11 +9,25 @@ from densenet_encoder import DenseNet as CNN
 from densenet_decoder import DenseNet as DCNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
-from utils.nn_utils import MLP, one_hot, arr_to_cov
+from utils.nn_utils import MLP, arr_to_cov
 
 
 IMG_EMBED_SHAPE = (24, 6, 6)
 IMG_EMBED_SIZE = np.prod(IMG_EMBED_SHAPE)
+
+
+class FiLM(nn.Module):
+    def __init__(self, condition_size, out_size, h_sizes):
+        super().__init__()
+        self.mlp = MLP(IMG_EMBED_SIZE, h_sizes, out_size)
+        self.gamma = nn.Embedding(condition_size, out_size)
+        self.beta = nn.Embedding(condition_size, out_size)
+
+    def forward(self, x, condition):
+        out = self.mlp(x)
+        gamma = self.gamma(condition)
+        beta = self.beta(condition)
+        return gamma * out + beta
 
 
 class Encoder(nn.Module):
@@ -22,29 +36,28 @@ class Encoder(nn.Module):
         self.z_size = z_size
         self.rank = rank
         self.cnn = CNN()
-        self.mu_causal = MLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
-        self.low_rank_causal = MLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size * rank)
-        self.diag_causal = MLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
-        self.mu_spurious = MLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
-        self.low_rank_spurious = MLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size * rank)
-        self.diag_spurious = MLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.mu_causal = FiLM(N_ENVS, z_size, h_sizes)
+        self.low_rank_causal = FiLM(N_ENVS, z_size * rank, h_sizes)
+        self.diag_causal = FiLM(N_ENVS, z_size, h_sizes)
+        self.mu_spurious = FiLM(N_CLASSES * N_ENVS, z_size, h_sizes)
+        self.low_rank_spurious = FiLM(N_CLASSES * N_ENVS, z_size * rank, h_sizes)
+        self.diag_spurious = FiLM(N_CLASSES * N_ENVS, z_size, h_sizes)
 
     def forward(self, x, y, e):
         batch_size = len(x)
         x = self.cnn(x).view(batch_size, -1)
-        y_one_hot = one_hot(y, N_CLASSES)
-        e_one_hot = one_hot(e, N_ENVS)
         # Causal
-        mu_causal = self.mu_causal(x, e_one_hot)
-        low_rank_causal = self.low_rank_causal(x, e_one_hot)
+        mu_causal = self.mu_causal(x, e)
+        low_rank_causal = self.low_rank_causal(x, e)
         low_rank_causal = low_rank_causal.reshape(batch_size, self.z_size, self.rank)
-        diag_causal = self.diag_causal(x, e_one_hot)
+        diag_causal = self.diag_causal(x, e)
         cov_causal = arr_to_cov(low_rank_causal, diag_causal)
         # Spurious
-        mu_spurious = self.mu_spurious(x, y_one_hot, e_one_hot)
-        low_rank_spurious = self.low_rank_spurious(x, y_one_hot, e_one_hot)
+        ye = 2 * e + y
+        mu_spurious = self.mu_spurious(x, ye)
+        low_rank_spurious = self.low_rank_spurious(x, ye)
         low_rank_spurious = low_rank_spurious.reshape(batch_size, self.z_size, self.rank)
-        diag_spurious = self.diag_spurious(x, y_one_hot, e_one_hot)
+        diag_spurious = self.diag_spurious(x, ye)
         cov_spurious = arr_to_cov(low_rank_spurious, diag_spurious)
         # Block diagonal
         mu = torch.hstack((mu_causal, mu_spurious))

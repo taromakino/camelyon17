@@ -73,6 +73,7 @@ def main(args):
                 ModelCheckpoint(monitor='val_acc', filename='best', mode='max')],
             max_epochs=args.n_epochs,
             check_val_every_n_epoch=args.check_val_every_n_epoch,
+            num_sanity_val_steps=0,
             deterministic=True,
             inference_mode=False)
         trainer.fit(model, data_train, [data_val_ood, data_test])
