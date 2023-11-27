@@ -6,7 +6,7 @@ from utils.plot import *
 
 def acc(fpath):
     df = pd.read_csv(fpath)
-    return df.eval_metric.iloc[-1]
+    return df.test_acc.iloc[-1]
 
 
 def plot(ax, args, stage, x_offset):
@@ -14,8 +14,8 @@ def plot(ax, args, stage, x_offset):
     for beta in args.beta_range:
         values_row = []
         for seed in range(args.n_seeds):
-            fpath = os.path.join(args.dpath, f'y_mult={args.y_mult},beta={beta}', 'classify', 'alpha=1', stage,
-                f'version_{seed}', 'metrics.csv')
+            fpath = os.path.join(args.dpath, f'y_mult={args.y_mult},beta={beta}', 'classify', stage, f'version_{seed}',
+                'metrics.csv')
             values_row.append(acc(fpath))
         values.append(values_row)
     values = pd.DataFrame(np.array(values).T).melt()
