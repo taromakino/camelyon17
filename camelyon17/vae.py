@@ -17,11 +17,13 @@ IMG_EMBED_SIZE = np.prod(IMG_EMBED_SHAPE)
 
 
 class FiLM(nn.Module):
-    def __init__(self, condition_size, out_size, h_sizes):
+    def __init__(self, condition_size, out_size, h_sizes, init_sd):
         super().__init__()
         self.mlp = MLP(IMG_EMBED_SIZE, h_sizes, out_size)
         self.gamma = nn.Embedding(condition_size, out_size)
         self.beta = nn.Embedding(condition_size, out_size)
+        nn.init.normal_(self.gamma.weight, 0, init_sd)
+        nn.init.normal_(self.beta.weight, 0, init_sd)
 
     def forward(self, x, condition):
         out = self.mlp(x)
@@ -31,17 +33,17 @@ class FiLM(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, z_size, rank, h_sizes):
+    def __init__(self, z_size, rank, h_sizes, init_sd):
         super().__init__()
         self.z_size = z_size
         self.rank = rank
         self.cnn = CNN()
-        self.mu_causal = FiLM(N_ENVS, z_size, h_sizes)
-        self.low_rank_causal = FiLM(N_ENVS, z_size * rank, h_sizes)
-        self.diag_causal = FiLM(N_ENVS, z_size, h_sizes)
-        self.mu_spurious = FiLM(N_CLASSES * N_ENVS, z_size, h_sizes)
-        self.low_rank_spurious = FiLM(N_CLASSES * N_ENVS, z_size * rank, h_sizes)
-        self.diag_spurious = FiLM(N_CLASSES * N_ENVS, z_size, h_sizes)
+        self.mu_causal = FiLM(N_ENVS, z_size, h_sizes, init_sd)
+        self.low_rank_causal = FiLM(N_ENVS, z_size * rank, h_sizes, init_sd)
+        self.diag_causal = FiLM(N_ENVS, z_size, h_sizes, init_sd)
+        self.mu_spurious = FiLM(N_CLASSES * N_ENVS, z_size, h_sizes, init_sd)
+        self.low_rank_spurious = FiLM(N_CLASSES * N_ENVS, z_size * rank, h_sizes, init_sd)
+        self.diag_spurious = FiLM(N_CLASSES * N_ENVS, z_size, h_sizes, init_sd)
 
     def forward(self, x, y, e):
         batch_size = len(x)
@@ -130,7 +132,7 @@ class VAE(pl.LightningModule):
         self.lr_infer = lr_infer
         self.n_infer_steps = n_infer_steps
         # q(z_c,z_s|x)
-        self.encoder = Encoder(z_size, rank, h_sizes)
+        self.encoder = Encoder(z_size, rank, h_sizes, init_sd)
         # p(x|z_c, z_s)
         self.decoder = Decoder(z_size, h_sizes)
         # p(z_c,z_s|y,e)
