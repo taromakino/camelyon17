@@ -9,7 +9,7 @@ from densenet_encoder import DenseNet as CNN
 from densenet_decoder import DenseNet as DCNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
-from utils.nn_utils import MLP, arr_to_cov
+from utils.nn_utils import ResidualMLP, one_hot, arr_to_cov
 
 
 IMG_EMBED_SHAPE = (24, 6, 6)
@@ -22,50 +22,42 @@ class Encoder(nn.Module):
         self.z_size = z_size
         self.rank = rank
         self.cnn = CNN()
-        self.mu_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size)
-        self.low_rank_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size * rank)
-        self.diag_causal = MLP(IMG_EMBED_SIZE, h_sizes, N_ENVS * z_size)
-        self.mu_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
-        self.low_rank_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size * rank)
-        self.diag_spurious = MLP(IMG_EMBED_SIZE, h_sizes, N_CLASSES * N_ENVS * z_size)
+        self.mu_causal = ResidualMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
+        self.low_rank_causal = ResidualMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size * rank)
+        self.diag_causal = ResidualMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
+        self.mu_spurious = ResidualMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.low_rank_spurious = ResidualMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size * rank)
+        self.diag_spurious = ResidualMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
 
     def forward(self, x, y, e):
         batch_size = len(x)
         x = self.cnn(x).view(batch_size, -1)
+        y_one_hot = one_hot(y, N_CLASSES)
+        e_one_hot = one_hot(e, N_ENVS)
         # Causal
-        mu_causal = self.mu_causal(x)
-        mu_causal = mu_causal.reshape(batch_size, N_ENVS, self.z_size)
-        mu_causal = mu_causal[torch.arange(batch_size), e, :]
-        low_rank_causal = self.low_rank_causal(x)
-        low_rank_causal = low_rank_causal.reshape(batch_size, N_ENVS, self.z_size, self.rank)
-        low_rank_causal = low_rank_causal[torch.arange(batch_size), e, :]
-        diag_causal = self.diag_causal(x)
-        diag_causal = diag_causal.reshape(batch_size, N_ENVS, self.z_size)
-        diag_causal = diag_causal[torch.arange(batch_size), e, :]
+        mu_causal = self.mu_causal(x, e_one_hot)
+        low_rank_causal = self.low_rank_causal(x, e_one_hot)
+        low_rank_causal = low_rank_causal.reshape(batch_size, self.z_size, self.rank)
+        diag_causal = self.diag_causal(x, e_one_hot)
         cov_causal = arr_to_cov(low_rank_causal, diag_causal)
         # Spurious
-        mu_spurious = self.mu_spurious(x)
-        mu_spurious = mu_spurious.reshape(batch_size, N_CLASSES, N_ENVS, self.z_size)
-        mu_spurious = mu_spurious[torch.arange(batch_size), y, e, :]
-        low_rank_spurious = self.low_rank_spurious(x)
-        low_rank_spurious = low_rank_spurious.reshape(batch_size, N_CLASSES, N_ENVS, self.z_size, self.rank)
-        low_rank_spurious = low_rank_spurious[torch.arange(batch_size), y, e, :]
-        diag_spurious = self.diag_spurious(x)
-        diag_spurious = diag_spurious.reshape(batch_size, N_CLASSES, N_ENVS, self.z_size)
-        diag_spurious = diag_spurious[torch.arange(batch_size), y, e, :]
+        mu_spurious = self.mu_spurious(x, y_one_hot, e_one_hot)
+        low_rank_spurious = self.low_rank_spurious(x, y_one_hot, e_one_hot)
+        low_rank_spurious = low_rank_spurious.reshape(batch_size, self.z_size, self.rank)
+        diag_spurious = self.diag_spurious(x, y_one_hot, e_one_hot)
         cov_spurious = arr_to_cov(low_rank_spurious, diag_spurious)
         # Block diagonal
         mu = torch.hstack((mu_causal, mu_spurious))
         cov = torch.zeros(batch_size, 2 * self.z_size, 2 * self.z_size, device=y.device)
         cov[:, :self.z_size, :self.z_size] = cov_causal
         cov[:, self.z_size:, self.z_size:] = cov_spurious
-        return D.MultivariateNormal(mu, scale_tril=torch.linalg.cholesky(cov))
+        return D.MultivariateNormal(mu, cov)
 
 
 class Decoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
-        self.mlp = MLP(2 * z_size, h_sizes, IMG_EMBED_SIZE)
+        self.mlp = ResidualMLP(2 * z_size, h_sizes, IMG_EMBED_SIZE)
         self.dcnn = DCNN()
 
     def forward(self, x, z):
@@ -131,9 +123,8 @@ class VAE(pl.LightningModule):
         # p(z_c,z_s|y,e)
         self.prior = Prior(z_size, rank, init_sd)
         # p(y|z)
-        self.classifier = MLP(z_size, h_sizes, 1)
-        self.val_acc = Accuracy('binary')
-        self.test_acc = Accuracy('binary')
+        self.classifier = ResidualMLP(z_size, h_sizes, 1)
+        self.eval_acc = Accuracy('binary')
 
     def sample_z(self, dist):
         mu, scale_tril = dist.loc, dist.scale_tril
@@ -161,11 +152,16 @@ class VAE(pl.LightningModule):
         x, y, e = batch
         log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
         loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
-        self.log('train_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
-        self.log('train_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
-        self.log('train_kl', kl, on_step=False, on_epoch=True)
-        self.log('train_loss', loss, on_step=False, on_epoch=True)
         return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y, e = batch
+        log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
+        self.log('val_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
+        self.log('val_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
+        self.log('val_kl', kl, on_step=False, on_epoch=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True)
 
     def init_z(self, x, y_value, e_value):
         batch_size = len(x)
@@ -211,29 +207,14 @@ class VAE(pl.LightningModule):
         y_pred = y_candidates[opt_loss.indices]
         return opt_loss.values.mean(), y_pred
 
-    def validation_step(self, batch, batch_idx, dataloader_idx):
-        x, y, e = batch
-        with torch.set_grad_enabled(True):
-            loss, y_pred = self.classify(x)
-            if dataloader_idx == 0:
-                self.val_acc.update(y_pred, y)
-            elif dataloader_idx == 1:
-                self.test_acc.update(y_pred, y)
-            else:
-                raise ValueError
-
-    def on_validation_epoch_end(self):
-        self.log('val_acc', self.val_acc.compute())
-        self.log('test_acc', self.test_acc.compute())
-
     def test_step(self, batch, batch_idx):
         x, y, e = batch
         with torch.set_grad_enabled(True):
             loss, y_pred = self.classify(x)
-            self.test_acc.update(y_pred, y)
+            self.eval_acc.update(y_pred, y)
 
     def on_test_epoch_end(self):
-        self.log('test_acc', self.test_acc.compute())
+        self.log('eval_acc', self.eval_acc.compute())
 
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
