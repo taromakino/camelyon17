@@ -124,8 +124,7 @@ class VAE(pl.LightningModule):
         self.prior = Prior(z_size, rank, init_sd)
         # p(y|z)
         self.classifier = ResidualMLP(z_size, h_sizes, 1)
-        self.val_acc = Accuracy('binary')
-        self.test_acc = Accuracy('binary')
+        self.eval_acc = Accuracy('binary')
 
     def sample_z(self, dist):
         mu, scale_tril = dist.loc, dist.scale_tril
@@ -153,11 +152,16 @@ class VAE(pl.LightningModule):
         x, y, e = batch
         log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
         loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
-        self.log('train_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
-        self.log('train_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
-        self.log('train_kl', kl, on_step=False, on_epoch=True)
-        self.log('train_loss', loss, on_step=False, on_epoch=True)
         return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y, e = batch
+        log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
+        self.log('val_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True)
+        self.log('val_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True)
+        self.log('val_kl', kl, on_step=False, on_epoch=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True)
 
     def init_z(self, x, y_value, e_value):
         batch_size = len(x)
@@ -203,29 +207,14 @@ class VAE(pl.LightningModule):
         y_pred = y_candidates[opt_loss.indices]
         return opt_loss.values.mean(), y_pred
 
-    def validation_step(self, batch, batch_idx, dataloader_idx):
-        x, y, e = batch
-        with torch.set_grad_enabled(True):
-            loss, y_pred = self.classify(x)
-            if dataloader_idx == 0:
-                self.val_acc.update(y_pred, y)
-            elif dataloader_idx == 1:
-                self.test_acc.update(y_pred, y)
-            else:
-                raise ValueError
-
-    def on_validation_epoch_end(self):
-        self.log('val_acc', self.val_acc.compute())
-        self.log('test_acc', self.test_acc.compute())
-
     def test_step(self, batch, batch_idx):
         x, y, e = batch
         with torch.set_grad_enabled(True):
             loss, y_pred = self.classify(x)
-            self.test_acc.update(y_pred, y)
+            self.eval_acc.update(y_pred, y)
 
     def on_test_epoch_end(self):
-        self.log('test_acc', self.test_acc.compute())
+        self.log('eval_acc', self.eval_acc.compute())
 
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)

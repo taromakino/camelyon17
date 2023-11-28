@@ -6,7 +6,7 @@ from utils.plot import *
 
 def acc(fpath):
     df = pd.read_csv(fpath)
-    return df.test_acc.iloc[-1]
+    return df.eval_acc.iloc[-1]
 
 
 def plot(ax, args, stage, x_offset):
