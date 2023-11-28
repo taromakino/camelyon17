@@ -9,57 +9,42 @@ from densenet_encoder import DenseNet as CNN
 from densenet_decoder import DenseNet as DCNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
-from utils.nn_utils import MLP, arr_to_cov
+from utils.nn_utils import ResidualMLP, one_hot, arr_to_cov
 
 
 IMG_EMBED_SHAPE = (24, 6, 6)
 IMG_EMBED_SIZE = np.prod(IMG_EMBED_SHAPE)
 
 
-class FiLM(nn.Module):
-    def __init__(self, condition_size, out_size, h_sizes, init_sd):
-        super().__init__()
-        self.mlp = MLP(IMG_EMBED_SIZE, h_sizes, out_size)
-        self.gamma = nn.Embedding(condition_size, out_size)
-        self.beta = nn.Embedding(condition_size, out_size)
-        nn.init.normal_(self.gamma.weight, 0, init_sd)
-        nn.init.normal_(self.beta.weight, 0, init_sd)
-
-    def forward(self, x, condition):
-        out = self.mlp(x)
-        gamma = self.gamma(condition)
-        beta = self.beta(condition)
-        return gamma * out + beta
-
-
 class Encoder(nn.Module):
-    def __init__(self, z_size, rank, h_sizes, init_sd):
+    def __init__(self, z_size, rank, h_sizes):
         super().__init__()
         self.z_size = z_size
         self.rank = rank
         self.cnn = CNN()
-        self.mu_causal = FiLM(N_ENVS, z_size, h_sizes, init_sd)
-        self.low_rank_causal = FiLM(N_ENVS, z_size * rank, h_sizes, init_sd)
-        self.diag_causal = FiLM(N_ENVS, z_size, h_sizes, init_sd)
-        self.mu_spurious = FiLM(N_CLASSES * N_ENVS, z_size, h_sizes, init_sd)
-        self.low_rank_spurious = FiLM(N_CLASSES * N_ENVS, z_size * rank, h_sizes, init_sd)
-        self.diag_spurious = FiLM(N_CLASSES * N_ENVS, z_size, h_sizes, init_sd)
+        self.mu_causal = ResidualMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
+        self.low_rank_causal = ResidualMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size * rank)
+        self.diag_causal = ResidualMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
+        self.mu_spurious = ResidualMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.low_rank_spurious = ResidualMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size * rank)
+        self.diag_spurious = ResidualMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
 
     def forward(self, x, y, e):
         batch_size = len(x)
         x = self.cnn(x).view(batch_size, -1)
+        y_one_hot = one_hot(y, N_CLASSES)
+        e_one_hot = one_hot(e, N_ENVS)
         # Causal
-        mu_causal = self.mu_causal(x, e)
-        low_rank_causal = self.low_rank_causal(x, e)
+        mu_causal = self.mu_causal(x, e_one_hot)
+        low_rank_causal = self.low_rank_causal(x, e_one_hot)
         low_rank_causal = low_rank_causal.reshape(batch_size, self.z_size, self.rank)
-        diag_causal = self.diag_causal(x, e)
+        diag_causal = self.diag_causal(x, e_one_hot)
         cov_causal = arr_to_cov(low_rank_causal, diag_causal)
         # Spurious
-        ye = 2 * e + y
-        mu_spurious = self.mu_spurious(x, ye)
-        low_rank_spurious = self.low_rank_spurious(x, ye)
+        mu_spurious = self.mu_spurious(x, y_one_hot, e_one_hot)
+        low_rank_spurious = self.low_rank_spurious(x, y_one_hot, e_one_hot)
         low_rank_spurious = low_rank_spurious.reshape(batch_size, self.z_size, self.rank)
-        diag_spurious = self.diag_spurious(x, ye)
+        diag_spurious = self.diag_spurious(x, y_one_hot, e_one_hot)
         cov_spurious = arr_to_cov(low_rank_spurious, diag_spurious)
         # Block diagonal
         mu = torch.hstack((mu_causal, mu_spurious))
@@ -72,7 +57,7 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
-        self.mlp = MLP(2 * z_size, h_sizes, IMG_EMBED_SIZE)
+        self.mlp = ResidualMLP(2 * z_size, h_sizes, IMG_EMBED_SIZE)
         self.dcnn = DCNN()
 
     def forward(self, x, z):
@@ -132,13 +117,13 @@ class VAE(pl.LightningModule):
         self.lr_infer = lr_infer
         self.n_infer_steps = n_infer_steps
         # q(z_c,z_s|x)
-        self.encoder = Encoder(z_size, rank, h_sizes, init_sd)
+        self.encoder = Encoder(z_size, rank, h_sizes)
         # p(x|z_c, z_s)
         self.decoder = Decoder(z_size, h_sizes)
         # p(z_c,z_s|y,e)
         self.prior = Prior(z_size, rank, init_sd)
         # p(y|z)
-        self.classifier = MLP(z_size, h_sizes, 1)
+        self.classifier = ResidualMLP(z_size, h_sizes, 1)
         self.val_acc = Accuracy('binary')
         self.test_acc = Accuracy('binary')
 
