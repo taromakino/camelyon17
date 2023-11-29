@@ -42,7 +42,8 @@ def make_model(args):
             args.lr, args.weight_decay, args.alpha, args.lr_infer, args.n_infer_steps)
     else:
         assert args.task == Task.CLASSIFY
-        return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task)
+        return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task, lr_infer=args.lr_infer,
+            n_infer_steps=args.n_infer_steps)
 
 
 def main(args):
@@ -70,7 +71,7 @@ def main(args):
             logger=CSVLogger(os.path.join(args.dpath, args.task.value), name='', version=args.seed),
             callbacks=[
                 EarlyStopping(monitor='val_loss', patience=int(args.early_stop_ratio * args.n_epochs)),
-                ModelCheckpoint(monitor='val_loss', filename='best')],
+                ModelCheckpoint(monitor='val_loss', filename='best', save_last=True)],
             max_epochs=args.n_epochs,
             deterministic=True)
         trainer.fit(model, data_train, data_val_id)
