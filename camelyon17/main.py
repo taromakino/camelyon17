@@ -76,7 +76,7 @@ def main(args):
             num_sanity_val_steps=0,
             deterministic=True,
             inference_mode=False)
-        trainer.fit(model, data_train, [data_val_id, data_test])
+        trainer.fit(model, data_train, [data_val_ood, data_test])
     else:
         assert args.task == Task.CLASSIFY
         trainer = pl.Trainer(
