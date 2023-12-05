@@ -9,7 +9,7 @@ from densenet_encoder import DenseNet as CNN
 from densenet_decoder import DenseNet as DCNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
-from utils.nn_utils import ResidualMLP, one_hot, arr_to_cov
+from utils.nn_utils import SkipMLP, one_hot, arr_to_cov
 
 
 IMG_EMBED_SHAPE = (24, 6, 6)
@@ -22,12 +22,12 @@ class Encoder(nn.Module):
         self.z_size = z_size
         self.rank = rank
         self.cnn = CNN()
-        self.mu_causal = ResidualMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
-        self.low_rank_causal = ResidualMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size * rank)
-        self.diag_causal = ResidualMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
-        self.mu_spurious = ResidualMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
-        self.low_rank_spurious = ResidualMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size * rank)
-        self.diag_spurious = ResidualMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.mu_causal = SkipMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
+        self.low_rank_causal = SkipMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size * rank)
+        self.diag_causal = SkipMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
+        self.mu_spurious = SkipMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.low_rank_spurious = SkipMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size * rank)
+        self.diag_spurious = SkipMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
 
     def forward(self, x, y, e):
         batch_size = len(x)
@@ -57,7 +57,7 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
-        self.mlp = ResidualMLP(2 * z_size, h_sizes, IMG_EMBED_SIZE)
+        self.mlp = SkipMLP(2 * z_size, h_sizes, IMG_EMBED_SIZE)
         self.dcnn = DCNN()
 
     def forward(self, x, z):
@@ -123,7 +123,7 @@ class VAE(pl.LightningModule):
         # p(z_c,z_s|y,e)
         self.prior = Prior(z_size, rank, init_sd)
         # p(y|z)
-        self.classifier = ResidualMLP(z_size, h_sizes, 1)
+        self.classifier = SkipMLP(z_size, h_sizes, 1)
         self.val_acc = Accuracy('binary')
         self.test_acc = Accuracy('binary')
 

@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from utils.nn_utils import ResidualMLP
+from utils.nn_utils import SkipMLP
 from vae import IMG_EMBED_SIZE, CNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
@@ -51,7 +51,7 @@ class ERM_X(ERMBase):
         super().__init__(lr, weight_decay)
         self.save_hyperparameters()
         self.cnn = CNN()
-        self.mlp = ResidualMLP(IMG_EMBED_SIZE, h_sizes, 1)
+        self.mlp = SkipMLP(IMG_EMBED_SIZE, h_sizes, 1)
 
     def forward(self, x, y, e):
         batch_size = len(x)
@@ -64,7 +64,7 @@ class ERM_ZC(ERMBase):
     def __init__(self, z_size, h_sizes, lr, weight_decay):
         super().__init__(lr, weight_decay)
         self.save_hyperparameters()
-        self.mlp = ResidualMLP(z_size, h_sizes, 1)
+        self.mlp = SkipMLP(z_size, h_sizes, 1)
 
     def forward(self, z, y, e):
         z_c, z_s = torch.chunk(z, 2, dim=1)
