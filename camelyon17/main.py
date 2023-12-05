@@ -95,7 +95,7 @@ if __name__ == '__main__':
     parser.add_argument('--eval_stage', type=EvalStage, choices=list(EvalStage))
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--eval_batch_size', type=int, default=1024)
-    parser.add_argument('--n_eval_examples', type=int, default=1024)
+    parser.add_argument('--n_eval_examples', type=int, default=2048)
     parser.add_argument('--n_workers', type=int, default=8)
     parser.add_argument('--z_size', type=int, default=128)
     parser.add_argument('--rank', type=int, default=64)

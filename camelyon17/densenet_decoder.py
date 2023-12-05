@@ -14,11 +14,11 @@ class _DenseLayer(nn.Module):
         super().__init__()
         self.norm1 = nn.BatchNorm2d(num_input_features)
         self.relu1 = nn.ReLU(True)
-        self.conv1 = nn.ConvTranspose2d(num_input_features, bn_size * growth_rate, 1, stride=1)
+        self.conv1 = nn.Conv2d(num_input_features, bn_size * growth_rate, 1, stride=1)
 
         self.norm2 = nn.BatchNorm2d(bn_size * growth_rate)
         self.relu2 = nn.ReLU(True)
-        self.conv2 = nn.ConvTranspose2d(bn_size * growth_rate, growth_rate, 3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(bn_size * growth_rate, growth_rate, 3, stride=1, padding=1)
 
         self.drop_rate = float(drop_rate)
         self.memory_efficient = memory_efficient
@@ -108,7 +108,7 @@ class _Transition(nn.Sequential):
         super().__init__()
         self.norm = nn.BatchNorm2d(num_input_features)
         self.relu = nn.ReLU(True)
-        self.conv = nn.ConvTranspose2d(num_input_features, num_output_features, 1, stride=1)
+        self.conv = nn.Conv2d(num_input_features, num_output_features, 1, stride=1)
         self.pool = nn.ConvTranspose2d(num_output_features, num_output_features, 2, stride=2)
 
 
@@ -131,7 +131,7 @@ class DenseNet(nn.Module):
     def __init__(
         self,
         growth_rate: int = 8,
-        block_config: Tuple[int, int, int, int] = (3, 3, 3),
+        block_config: Tuple[int, int, int, int] = (3, 3, 3, 3, 3),
         num_init_features: int = 24,
         bn_size: int = 4,
         drop_rate: float = 0,
@@ -140,11 +140,7 @@ class DenseNet(nn.Module):
 
         super().__init__()
 
-        # First convolution
         self.features = nn.Sequential()
-        self.features.add_module("tconv0", nn.ConvTranspose2d(num_init_features, num_init_features, 2, stride=2))
-
-        # Each denseblock
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
             block = _DenseBlock(
@@ -162,13 +158,7 @@ class DenseNet(nn.Module):
                 self.features.add_module("transition%d" % (i + 1), trans)
                 num_features = num_features // 2
 
-        self.features.add_module("norm4", nn.BatchNorm2d(num_features))
-        self.features.add_module("relu4", nn.ReLU(True))
-        self.features.add_module("tconv4", nn.ConvTranspose2d(num_features, num_features // 2, 2, stride=2))
-        num_features = num_features // 2
-        self.features.add_module("norm5", nn.BatchNorm2d(num_features))
-        self.features.add_module("relu5", nn.ReLU(True))
-        self.features.add_module("tconv5", nn.ConvTranspose2d(num_features, 3, 3, stride=1, padding=1))
+        self.features.add_module("out", nn.Conv2d(num_features, 3, kernel_size=3, padding=1))
 
     def forward(self, z: Tensor) -> Tensor:
         out = self.features(z)
