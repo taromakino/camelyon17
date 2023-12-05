@@ -1,11 +1,10 @@
-from collections import OrderedDict
-from typing import List, Tuple
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as cp
+from collections import OrderedDict
 from torch import Tensor
+from typing import List, Tuple
 
 
 class _DenseLayer(nn.Module):
@@ -14,12 +13,12 @@ class _DenseLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.norm1 = nn.BatchNorm2d(num_input_features)
-        self.relu1 = nn.ReLU(True)
-        self.conv1 = nn.Conv2d(num_input_features, bn_size * growth_rate, 1, stride=1)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv1 = nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)
 
         self.norm2 = nn.BatchNorm2d(bn_size * growth_rate)
-        self.relu2 = nn.ReLU(True)
-        self.conv2 = nn.Conv2d(bn_size * growth_rate, growth_rate, 3, stride=1, padding=1)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)
 
         self.drop_rate = float(drop_rate)
         self.memory_efficient = memory_efficient
@@ -108,9 +107,9 @@ class _Transition(nn.Sequential):
     def __init__(self, num_input_features: int, num_output_features: int) -> None:
         super().__init__()
         self.norm = nn.BatchNorm2d(num_input_features)
-        self.relu = nn.ReLU(True)
-        self.conv = nn.Conv2d(num_input_features, num_output_features, 1, stride=1)
-        self.pool = nn.AvgPool2d(2, stride=2)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv = nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False)
+        self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
 
 
 class DenseNet(nn.Module):
@@ -132,7 +131,7 @@ class DenseNet(nn.Module):
     def __init__(
         self,
         growth_rate: int = 8,
-        block_config: Tuple[int, int, int, int] = (3, 3, 3),
+        block_config: Tuple[int, int, int, int] = (3, 3, 3, 3, 3),
         num_init_features: int = 24,
         bn_size: int = 4,
         drop_rate: float = 0,
@@ -145,9 +144,9 @@ class DenseNet(nn.Module):
         self.features = nn.Sequential(
             OrderedDict(
                 [
-                    ("conv0", nn.Conv2d(3, num_init_features, 3, stride=2, padding=1)),
+                    ("conv0", nn.Conv2d(3, num_init_features, kernel_size=3, padding=1, bias=False)),
                     ("norm0", nn.BatchNorm2d(num_init_features)),
-                    ("relu0", nn.ReLU(True))
+                    ("relu0", nn.ReLU(inplace=True))
                 ]
             )
         )
@@ -166,14 +165,19 @@ class DenseNet(nn.Module):
             self.features.add_module("denseblock%d" % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
-                trans = _Transition(num_features, num_features // 2)
+                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
                 self.features.add_module("transition%d" % (i + 1), trans)
                 num_features = num_features // 2
 
-        # Final batch norm
-        self.features.add_module("norm4", nn.BatchNorm2d(num_features))
-        self.features.add_module("relu4", nn.ReLU(True))
-        self.features.add_module("conv5", nn.Conv2d(num_features, num_features // 2, 2, stride=2))
+        # Official init from torch repo.
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, x: Tensor) -> Tensor:
         out = self.features(x)

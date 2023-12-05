@@ -1,10 +1,10 @@
-from typing import List, Tuple
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as cp
+from collections import OrderedDict
 from torch import Tensor
+from typing import List, Tuple
 
 
 class _DenseLayer(nn.Module):
@@ -13,12 +13,12 @@ class _DenseLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.norm1 = nn.BatchNorm2d(num_input_features)
-        self.relu1 = nn.ReLU(True)
-        self.conv1 = nn.Conv2d(num_input_features, bn_size * growth_rate, 1, stride=1)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv1 = nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)
 
         self.norm2 = nn.BatchNorm2d(bn_size * growth_rate)
-        self.relu2 = nn.ReLU(True)
-        self.conv2 = nn.Conv2d(bn_size * growth_rate, growth_rate, 3, stride=1, padding=1)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)
 
         self.drop_rate = float(drop_rate)
         self.memory_efficient = memory_efficient
@@ -107,8 +107,8 @@ class _Transition(nn.Sequential):
     def __init__(self, num_input_features: int, num_output_features: int) -> None:
         super().__init__()
         self.norm = nn.BatchNorm2d(num_input_features)
-        self.relu = nn.ReLU(True)
-        self.conv = nn.Conv2d(num_input_features, num_output_features, 1, stride=1)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv = nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False)
         self.pool = nn.ConvTranspose2d(num_output_features, num_output_features, 2, stride=2)
 
 
@@ -140,7 +140,10 @@ class DenseNet(nn.Module):
 
         super().__init__()
 
+        # First convolution
         self.features = nn.Sequential()
+
+        # Each denseblock
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
             block = _DenseBlock(
@@ -154,12 +157,22 @@ class DenseNet(nn.Module):
             self.features.add_module("denseblock%d" % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
-                trans = _Transition(num_features, num_features // 2)
+                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
                 self.features.add_module("transition%d" % (i + 1), trans)
                 num_features = num_features // 2
 
         self.features.add_module("out", nn.Conv2d(num_features, 3, kernel_size=3, padding=1))
 
-    def forward(self, z: Tensor) -> Tensor:
-        out = self.features(z)
+        # Official init from torch repo.
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+                nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x: Tensor) -> Tensor:
+        out = self.features(x)
         return out
