@@ -29,7 +29,7 @@ def plot(ax, x):
 def decode(vae, z):
     batch_size = len(z)
     x_pred = vae.decoder.mlp(z).view(batch_size, 24, 6, 6)
-    x_pred = vae.decoder.dcnn(x_pred)
+    x_pred = vae.decoder.decode_cnn(x_pred)
     return torch.sigmoid(x_pred)
 
 
@@ -37,7 +37,7 @@ def main(args):
     rng = np.random.RandomState(args.seed)
     task_dpath = os.path.join(args.dpath, Task.VAE.value)
     pl.seed_everything(args.seed)
-    dataloader, _, _, _ = make_data(1, None)
+    dataloader, _, _, _ = make_data(1, 1, 1, None)
     vae = VAE.load_from_checkpoint(os.path.join(task_dpath, f'version_{args.seed}', 'checkpoints', 'best.ckpt'))
     example_idxs = rng.choice(len(dataloader), args.n_examples, replace=False)
     for i, example_idx in enumerate(example_idxs):

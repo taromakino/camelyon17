@@ -5,15 +5,17 @@ import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
 from data import N_CLASSES, N_ENVS
-from densenet_encoder import DenseNet as CNN
-from densenet_decoder import DenseNet as DCNN
+from densenet_encoder import DenseNet as EncodeCNN
+from densenet_decoder import DenseNet as DecodeCNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
 from utils.nn_utils import SkipMLP, one_hot, arr_to_cov
 
 
-IMG_EMBED_SHAPE = (24, 6, 6)
-IMG_EMBED_SIZE = np.prod(IMG_EMBED_SHAPE)
+IMG_ENCODE_SHAPE = (48, 6, 6)
+IMG_ENCODE_SIZE = np.prod(IMG_ENCODE_SHAPE)
+IMG_DECODE_SHAPE = (24, 6, 6)
+IMG_DECODE_SIZE = np.prod(IMG_DECODE_SHAPE)
 
 
 class Encoder(nn.Module):
@@ -21,17 +23,17 @@ class Encoder(nn.Module):
         super().__init__()
         self.z_size = z_size
         self.rank = rank
-        self.cnn = CNN()
-        self.mu_causal = SkipMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
-        self.low_rank_causal = SkipMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size * rank)
-        self.diag_causal = SkipMLP(IMG_EMBED_SIZE + N_ENVS, h_sizes, z_size)
-        self.mu_spurious = SkipMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
-        self.low_rank_spurious = SkipMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size * rank)
-        self.diag_spurious = SkipMLP(IMG_EMBED_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.encode_cnn = EncodeCNN()
+        self.mu_causal = SkipMLP(IMG_ENCODE_SIZE + N_ENVS, h_sizes, z_size)
+        self.low_rank_causal = SkipMLP(IMG_ENCODE_SIZE + N_ENVS, h_sizes, z_size * rank)
+        self.diag_causal = SkipMLP(IMG_ENCODE_SIZE + N_ENVS, h_sizes, z_size)
+        self.mu_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.low_rank_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size * rank)
+        self.diag_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
 
     def forward(self, x, y, e):
         batch_size = len(x)
-        x = self.cnn(x).view(batch_size, -1)
+        x = self.encode_cnn(x).view(batch_size, -1)
         y_one_hot = one_hot(y, N_CLASSES)
         e_one_hot = one_hot(e, N_ENVS)
         # Causal
@@ -57,13 +59,13 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
-        self.mlp = SkipMLP(2 * z_size, h_sizes, IMG_EMBED_SIZE)
-        self.dcnn = DCNN()
+        self.mlp = SkipMLP(2 * z_size, h_sizes, IMG_DECODE_SIZE)
+        self.decode_cnn = DecodeCNN()
 
     def forward(self, x, z):
         batch_size = len(x)
-        x_pred = self.mlp(z).view(batch_size, *IMG_EMBED_SHAPE)
-        x_pred = self.dcnn(x_pred).view(batch_size, -1)
+        x_pred = self.mlp(z).view(batch_size, *IMG_DECODE_SHAPE)
+        x_pred = self.decode_cnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
 
