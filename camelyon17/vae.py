@@ -5,15 +5,14 @@ import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
 from data import N_CLASSES, N_ENVS
-from densenet_encoder import DenseNet as EncodeCNN
-from densenet_decoder import DenseNet as DecodeCNN
+from encoder_cnn import EncoderCNN
+from decoder_cnn import DecoderCNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
 from utils.nn_utils import SkipMLP, one_hot, arr_to_cov
 
 
-IMG_ENCODE_SHAPE = (48, 6, 6)
-IMG_ENCODE_SIZE = np.prod(IMG_ENCODE_SHAPE)
+IMG_ENCODE_SIZE = 1024
 IMG_DECODE_SHAPE = (24, 6, 6)
 IMG_DECODE_SIZE = np.prod(IMG_DECODE_SHAPE)
 
@@ -23,7 +22,7 @@ class Encoder(nn.Module):
         super().__init__()
         self.z_size = z_size
         self.rank = rank
-        self.encode_cnn = EncodeCNN()
+        self.encoder_cnn = EncoderCNN()
         self.mu_causal = SkipMLP(IMG_ENCODE_SIZE + N_ENVS, h_sizes, z_size)
         self.low_rank_causal = SkipMLP(IMG_ENCODE_SIZE + N_ENVS, h_sizes, z_size * rank)
         self.diag_causal = SkipMLP(IMG_ENCODE_SIZE + N_ENVS, h_sizes, z_size)
@@ -33,7 +32,7 @@ class Encoder(nn.Module):
 
     def forward(self, x, y, e):
         batch_size = len(x)
-        x = self.encode_cnn(x).view(batch_size, -1)
+        x = self.encoder_cnn(x).view(batch_size, -1)
         y_one_hot = one_hot(y, N_CLASSES)
         e_one_hot = one_hot(e, N_ENVS)
         # Causal
@@ -60,12 +59,12 @@ class Decoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
         self.mlp = SkipMLP(2 * z_size, h_sizes, IMG_DECODE_SIZE)
-        self.decode_cnn = DecodeCNN()
+        self.decoder_cnn = DecoderCNN()
 
     def forward(self, x, z):
         batch_size = len(x)
         x_pred = self.mlp(z).view(batch_size, *IMG_DECODE_SHAPE)
-        x_pred = self.decode_cnn(x_pred).view(batch_size, -1)
+        x_pred = self.decoder_cnn(x_pred).view(batch_size, -1)
         return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
 
 
@@ -104,7 +103,7 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, reg_mult, init_sd, lr, weight_decay, alpha, lr_infer,
+    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, reg_mult, init_sd, lr, weight_decay, lr_infer,
             n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
@@ -115,7 +114,6 @@ class VAE(pl.LightningModule):
         self.reg_mult = reg_mult
         self.lr = lr
         self.weight_decay = weight_decay
-        self.alpha = alpha
         self.lr_infer = lr_infer
         self.n_infer_steps = n_infer_steps
         # q(z_c,z_s|x)
@@ -176,7 +174,7 @@ class VAE(pl.LightningModule):
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float(), reduction='none')
         # log q(z_c,z_s|x,y,e)
         log_prob_z_xye = self.encoder(x, y, e).log_prob(z)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - self.alpha * log_prob_z_xye
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc - log_prob_z_xye
         return loss
 
     def opt_infer_loss(self, x, y_value, e_value):

@@ -39,7 +39,7 @@ def make_model(args):
             return ERM_X.load_from_checkpoint(ckpt_fpath(args, args.task))
     elif args.task == Task.VAE:
         return VAE(args.task, args.z_size, args.rank, args.h_sizes, args.y_mult, args.beta, args.reg_mult, args.init_sd,
-            args.lr, args.weight_decay, args.alpha, args.lr_infer, args.n_infer_steps)
+            args.lr, args.weight_decay, args.lr_infer, args.n_infer_steps)
     else:
         assert args.task == Task.CLASSIFY
         return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task)
@@ -95,7 +95,7 @@ if __name__ == '__main__':
     parser.add_argument('--eval_stage', type=EvalStage, choices=list(EvalStage))
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--eval_batch_size', type=int, default=1024)
-    parser.add_argument('--n_eval_examples', type=int, default=2048)
+    parser.add_argument('--n_eval_examples', type=int, default=1024)
     parser.add_argument('--n_workers', type=int, default=8)
     parser.add_argument('--z_size', type=int, default=128)
     parser.add_argument('--rank', type=int, default=64)
@@ -104,9 +104,8 @@ if __name__ == '__main__':
     parser.add_argument('--beta', type=float, default=1)
     parser.add_argument('--reg_mult', type=float, default=1e-5)
     parser.add_argument('--init_sd', type=float, default=0.01)
-    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--weight_decay', type=float, default=1e-5)
-    parser.add_argument('--alpha', type=float, default=1)
     parser.add_argument('--lr_infer', type=float, default=1)
     parser.add_argument('--n_infer_steps', type=int, default=200)
     parser.add_argument('--n_epochs', type=int, default=100)

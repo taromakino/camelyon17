@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as cp
-from collections import OrderedDict
 from torch import Tensor
 from typing import List, Tuple
 
@@ -112,7 +111,7 @@ class _Transition(nn.Sequential):
         self.pool = nn.ConvTranspose2d(num_output_features, num_output_features, 2, stride=2)
 
 
-class DenseNet(nn.Module):
+class DecoderCNN(nn.Module):
     r"""Densenet-BC model class, based on
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_.
 

@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from utils.nn_utils import SkipMLP
-from vae import IMG_ENCODE_SIZE, EncodeCNN
+from vae import IMG_ENCODE_SIZE, EncoderCNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
 
@@ -50,7 +50,7 @@ class ERM_X(ERMBase):
     def __init__(self, h_sizes, lr, weight_decay):
         super().__init__(lr, weight_decay)
         self.save_hyperparameters()
-        self.cnn = EncodeCNN()
+        self.cnn = EncoderCNN()
         self.mlp = SkipMLP(IMG_ENCODE_SIZE, h_sizes, 1)
 
     def forward(self, x, y, e):

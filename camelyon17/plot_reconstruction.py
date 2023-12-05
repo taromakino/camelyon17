@@ -29,7 +29,7 @@ def plot(ax, x):
 def decode(vae, z):
     batch_size = len(z)
     x_pred = vae.decoder.mlp(z).view(batch_size, 24, 6, 6)
-    x_pred = vae.decoder.decode_cnn(x_pred)
+    x_pred = vae.decoder.decoder_cnn(x_pred)
     return torch.sigmoid(x_pred)
 
 
@@ -37,11 +37,11 @@ def main(args):
     rng = np.random.RandomState(args.seed)
     task_dpath = os.path.join(args.dpath, Task.VAE.value)
     pl.seed_everything(args.seed)
-    dataloader, _, _, _ = make_data(1, 1, 1, None)
+    data_train, _, _, _ = make_data(1, 1, 1, None)
     vae = VAE.load_from_checkpoint(os.path.join(task_dpath, f'version_{args.seed}', 'checkpoints', 'best.ckpt'))
-    example_idxs = rng.choice(len(dataloader), args.n_examples, replace=False)
+    example_idxs = rng.choice(len(data_train), args.n_examples, replace=False)
     for i, example_idx in enumerate(example_idxs):
-        x_seed, y_seed, e_seed = dataloader.dataset.__getitem__(example_idx)
+        x_seed, y_seed, e_seed = data_train.dataset.__getitem__(example_idx)
         x_seed, y_seed, e_seed = x_seed[None].to(vae.device), y_seed[None].to(vae.device), e_seed[None].to(vae.device)
         posterior_dist_seed = vae.encoder(x_seed, vae.y_embed(y_seed), vae.e_embed(e_seed))
         z_seed = posterior_dist_seed.loc
@@ -56,7 +56,7 @@ def main(args):
         plot(axes[0, 1], x_pred)
         plot(axes[1, 1], x_pred)
         for col_idx in range(2, args.n_cols):
-            zc_sample, zs_sample = sample_prior(rng, dataloader, vae)
+            zc_sample, zs_sample = sample_prior(rng, data_train, vae)
             x_pred_causal = decode(vae, torch.hstack((zc_sample, zs_seed)))
             x_pred_spurious = decode(vae, torch.hstack((zc_seed, zs_sample)))
             plot(axes[0, col_idx], x_pred_causal)
