@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch.nn.functional as F
 from collections import OrderedDict
 from torch import Tensor
 from typing import Tuple
@@ -47,4 +48,5 @@ class EncoderCNN(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         out = self.features(x)
+        out = F.relu(out)
         return out
