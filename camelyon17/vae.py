@@ -12,7 +12,8 @@ from torchmetrics import Accuracy
 from utils.nn_utils import SkipMLP, one_hot, arr_to_cov
 
 
-IMG_ENCODE_SIZE = 1024
+IMG_ENCODE_SHAPE = (48, 6, 6)
+IMG_ENCODE_SIZE = np.prod(IMG_ENCODE_SHAPE)
 IMG_DECODE_SHAPE = (24, 6, 6)
 IMG_DECODE_SIZE = np.prod(IMG_DECODE_SHAPE)
 
