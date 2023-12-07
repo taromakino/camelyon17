@@ -32,7 +32,7 @@ class DenseLinear(nn.Module):
 class DenseMLP(nn.Module):
     def __init__(self, input_size, output_size, n_layers, growth_rate, bn_size):
         super().__init__()
-        self.dense_layers = []
+        self.dense_layers = nn.ModuleList()
         for i in range(n_layers):
             self.dense_layers.append(DenseLinear(input_size + i * growth_rate, growth_rate, bn_size))
         self.out = nn.Linear(input_size + n_layers * growth_rate, output_size)
