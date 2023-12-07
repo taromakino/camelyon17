@@ -2,7 +2,7 @@ from enum import Enum
 
 
 class Task(Enum):
-    ERM_X = 'erm_x'
+    ERM = 'erm'
     VAE = 'vae'
     CLASSIFY = 'classify'
 

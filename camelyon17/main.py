@@ -2,7 +2,7 @@ import data
 import os
 import pytorch_lightning as pl
 from argparse import ArgumentParser
-from erm import ERM_X
+from erm import ERM
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 from utils.enums import Task, EvalStage
@@ -32,14 +32,14 @@ def ckpt_fpath(args, task):
 
 def make_model(args):
     is_train = args.eval_stage is None
-    if args.task == Task.ERM_X:
+    if args.task == Task.ERM:
         if is_train:
-            return ERM_X(args.h_sizes, args.lr, args.weight_decay)
+            return ERM(args.lr, args.weight_decay)
         else:
-            return ERM_X.load_from_checkpoint(ckpt_fpath(args, args.task))
+            return ERM.load_from_checkpoint(ckpt_fpath(args, args.task))
     elif args.task == Task.VAE:
-        return VAE(args.task, args.z_size, args.rank, args.h_sizes, args.y_mult, args.beta, args.reg_mult, args.init_sd,
-            args.lr, args.weight_decay, args.lr_infer, args.n_infer_steps)
+        return VAE(args.task, args.z_size, args.rank, args.n_layers, args.growth_rate, args.bn_size, args.y_mult,
+            args.beta, args.reg_mult, args.init_sd, args.lr, args.weight_decay, args.lr_infer, args.n_infer_steps)
     else:
         assert args.task == Task.CLASSIFY
         return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task)
@@ -49,7 +49,7 @@ def main(args):
     pl.seed_everything(args.seed)
     data_train, data_val_id, data_val_ood, data_test, data_eval = make_data(args)
     model = make_model(args)
-    if args.task == Task.ERM_X:
+    if args.task == Task.ERM:
         if args.eval_stage is None:
             trainer = pl.Trainer(
                 logger=CSVLogger(os.path.join(args.dpath, args.task.value), name='', version=args.seed),
@@ -99,11 +99,13 @@ if __name__ == '__main__':
     parser.add_argument('--n_workers', type=int, default=8)
     parser.add_argument('--z_size', type=int, default=128)
     parser.add_argument('--rank', type=int, default=64)
-    parser.add_argument('--h_sizes', nargs='+', type=int, default=[512, 512])
+    parser.add_argument('--n_layers', type=int, default=3)
+    parser.add_argument('--growth_rate', type=int, default=64)
+    parser.add_argument('--bn_size', type=int, default=4)
     parser.add_argument('--y_mult', type=float, default=1)
     parser.add_argument('--beta', type=float, default=1)
     parser.add_argument('--reg_mult', type=float, default=1e-5)
-    parser.add_argument('--init_sd', type=float, default=0.01)
+    parser.add_argument('--init_sd', type=float, default=1e-3)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--weight_decay', type=float, default=1e-5)
     parser.add_argument('--lr_infer', type=float, default=1)
