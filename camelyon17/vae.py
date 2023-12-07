@@ -9,7 +9,7 @@ from encoder_cnn import EncoderCNN
 from decoder_cnn import DecoderCNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
-from utils.nn_utils import DenseMLP, one_hot, arr_to_cov
+from utils.nn_utils import SkipMLP, one_hot, arr_to_cov
 
 
 IMG_ENCODE_SHAPE = (48, 6, 6)
@@ -19,19 +19,17 @@ IMG_DECODE_SIZE = np.prod(IMG_DECODE_SHAPE)
 
 
 class Encoder(nn.Module):
-    def __init__(self, z_size, rank, n_layers, growth_rate, bn_size):
+    def __init__(self, z_size, rank, h_sizes):
         super().__init__()
         self.z_size = z_size
         self.rank = rank
         self.encoder_cnn = EncoderCNN()
-        input_size_causal = IMG_ENCODE_SIZE + N_ENVS
-        input_size_spurious = IMG_ENCODE_SIZE + N_CLASSES + N_ENVS
-        self.mu_causal = DenseMLP(input_size_causal, z_size, n_layers, growth_rate, bn_size)
-        self.low_rank_causal = DenseMLP(input_size_causal, z_size * rank, n_layers, growth_rate, bn_size)
-        self.diag_causal = DenseMLP(input_size_causal, z_size, n_layers, growth_rate, bn_size)
-        self.mu_spurious = DenseMLP(input_size_spurious, z_size, n_layers, growth_rate, bn_size)
-        self.low_rank_spurious = DenseMLP(input_size_spurious, z_size * rank, n_layers, growth_rate, bn_size)
-        self.diag_spurious = DenseMLP(input_size_spurious, z_size, n_layers, growth_rate, bn_size)
+        self.mu_causal = SkipMLP(IMG_ENCODE_SIZE + N_ENVS, h_sizes, z_size)
+        self.low_rank_causal = SkipMLP(IMG_ENCODE_SIZE + N_ENVS, h_sizes, z_size * rank)
+        self.diag_causal = SkipMLP(IMG_ENCODE_SIZE + N_ENVS, h_sizes, z_size)
+        self.mu_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.low_rank_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size * rank)
+        self.diag_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
 
     def forward(self, x, y, e):
         batch_size = len(x)
@@ -39,18 +37,16 @@ class Encoder(nn.Module):
         y_one_hot = one_hot(y, N_CLASSES)
         e_one_hot = one_hot(e, N_ENVS)
         # Causal
-        input_causal = torch.hstack((x, e_one_hot))
-        mu_causal = self.mu_causal(input_causal)
-        low_rank_causal = self.low_rank_causal(input_causal)
+        mu_causal = self.mu_causal(x, e_one_hot)
+        low_rank_causal = self.low_rank_causal(x, e_one_hot)
         low_rank_causal = low_rank_causal.reshape(batch_size, self.z_size, self.rank)
-        diag_causal = self.diag_causal(input_causal)
+        diag_causal = self.diag_causal(x, e_one_hot)
         cov_causal = arr_to_cov(low_rank_causal, diag_causal)
         # Spurious
-        input_spurious = torch.hstack((x, y_one_hot, e_one_hot))
-        mu_spurious = self.mu_spurious(input_spurious)
-        low_rank_spurious = self.low_rank_spurious(input_spurious)
+        mu_spurious = self.mu_spurious(x, y_one_hot, e_one_hot)
+        low_rank_spurious = self.low_rank_spurious(x, y_one_hot, e_one_hot)
         low_rank_spurious = low_rank_spurious.reshape(batch_size, self.z_size, self.rank)
-        diag_spurious = self.diag_spurious(input_spurious)
+        diag_spurious = self.diag_spurious(x, y_one_hot, e_one_hot)
         cov_spurious = arr_to_cov(low_rank_spurious, diag_spurious)
         # Block diagonal
         mu = torch.hstack((mu_causal, mu_spurious))
@@ -61,9 +57,9 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, z_size, n_layers, growth_rate, bn_size):
+    def __init__(self, z_size, h_sizes):
         super().__init__()
-        self.mlp = DenseMLP(2 * z_size, IMG_DECODE_SIZE, n_layers, growth_rate, bn_size)
+        self.mlp = SkipMLP(2 * z_size, h_sizes, IMG_DECODE_SIZE)
         self.decoder_cnn = DecoderCNN()
 
     def forward(self, x, z):
@@ -108,8 +104,8 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, n_layers, growth_rate, bn_size, y_mult, beta, reg_mult, init_sd, lr,
-            weight_decay, lr_infer, n_infer_steps):
+    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, reg_mult, init_sd, lr, weight_decay, lr_infer,
+            n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
@@ -122,13 +118,13 @@ class VAE(pl.LightningModule):
         self.lr_infer = lr_infer
         self.n_infer_steps = n_infer_steps
         # q(z_c,z_s|x)
-        self.encoder = Encoder(z_size, rank, n_layers, growth_rate, bn_size)
+        self.encoder = Encoder(z_size, rank, h_sizes)
         # p(x|z_c, z_s)
-        self.decoder = Decoder(z_size, n_layers, growth_rate, bn_size)
+        self.decoder = Decoder(z_size, h_sizes)
         # p(z_c,z_s|y,e)
         self.prior = Prior(z_size, rank, init_sd)
         # p(y|z)
-        self.classifier = DenseMLP(z_size, 1, n_layers, growth_rate, bn_size)
+        self.classifier = SkipMLP(z_size, h_sizes, 1)
         self.val_acc = Accuracy('binary')
         self.test_acc = Accuracy('binary')
 

@@ -37,8 +37,8 @@ def make_model(args):
         else:
             return ERM.load_from_checkpoint(ckpt_fpath(args, args.task))
     elif args.task == Task.VAE:
-        return VAE(args.task, args.z_size, args.rank, args.n_layers, args.growth_rate, args.bn_size, args.y_mult,
-            args.beta, args.reg_mult, args.init_sd, args.lr, args.weight_decay, args.lr_infer, args.n_infer_steps)
+        return VAE(args.task, args.z_size, args.rank, args.h_sizes, args.y_mult, args.beta, args.reg_mult, args.init_sd,
+            args.lr, args.weight_decay, args.lr_infer, args.n_infer_steps)
     else:
         assert args.task == Task.CLASSIFY
         return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task)
@@ -92,9 +92,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_eval_examples', type=int, default=None)
     parser.add_argument('--z_size', type=int, default=128)
     parser.add_argument('--rank', type=int, default=64)
-    parser.add_argument('--n_layers', type=int, default=3)
-    parser.add_argument('--growth_rate', type=int, default=64)
-    parser.add_argument('--bn_size', type=int, default=4)
+    parser.add_argument('--h_sizes', nargs='+', type=int, default=[512, 512])
     parser.add_argument('--y_mult', type=float, default=1)
     parser.add_argument('--beta', type=float, default=1)
     parser.add_argument('--reg_mult', type=float, default=1e-5)
