@@ -132,19 +132,17 @@ class VAE(pl.LightningModule):
         self.val_acc = Accuracy('binary')
         self.test_acc = Accuracy('binary')
 
-    def sample_z(self, causal_dist, spurious_dist):
-        mu_causal, tril_causal = causal_dist.loc, causal_dist.scale_tril
-        mu_spurious, tril_spurious = spurious_dist.loc, spurious_dist.scale_tril
-        batch_size = len(mu_causal)
-        epsilon = torch.randn(batch_size, self.z_size, 1).to(self.device)
-        z_c = mu_causal + torch.bmm(tril_causal, epsilon).squeeze()
-        z_s = mu_spurious + torch.bmm(tril_spurious, epsilon).squeeze()
-        return z_c, z_s
+    def sample_z(self, dist):
+        mu, scale_tril = dist.loc, dist.scale_tril
+        batch_size, z_size = mu.shape
+        epsilon = torch.randn(batch_size, z_size, 1).to(self.device)
+        return mu + torch.bmm(scale_tril, epsilon).squeeze()
 
     def loss(self, x, y, e):
         # z_c,z_s ~ q(z_c,z_s|x)
         posterior_causal, posterior_spurious = self.encoder(x, y, e)
-        z_c, z_s = self.sample_z(posterior_causal, posterior_spurious)
+        z_c = self.sample_z(posterior_causal)
+        z_s = self.sample_z(posterior_spurious)
         # E_q(z_c,z_s|x)[log p(x|z_c,z_s)]
         z = torch.hstack((z_c, z_s))
         log_prob_x_z = self.decoder(x, z).mean()
