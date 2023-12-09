@@ -227,8 +227,9 @@ class VAE(pl.LightningModule):
             self.log('val_loss', loss, on_step=False, on_epoch=True)
         else:
             assert dataloader_idx == 1
-            loss, y_pred = self.classify(x)
-            self.test_acc.update(y_pred, y)
+            with torch.set_grad_enabled(True):
+                loss, y_pred = self.classify(x)
+                self.test_acc.update(y_pred, y)
 
     def on_validation_epoch_end(self):
         self.log('test_acc', self.test_acc.compute())
