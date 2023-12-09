@@ -179,7 +179,11 @@ class VAE(pl.LightningModule):
         batch_size = len(x)
         y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
         e = torch.full((batch_size,), e_value, dtype=torch.long, device=self.device)
-        return nn.Parameter(self.encoder(x, y, e).loc.detach())
+        posterior_causal, posterior_spurious = self.encoder(x, y, e)
+        z_c = posterior_causal.loc
+        z_s = posterior_spurious.loc
+        z = torch.hstack((z_c, z_s))
+        return nn.Parameter(z.detach())
 
     def infer_loss(self, x, y, e, z):
         # log p(x|z_c,z_s)
