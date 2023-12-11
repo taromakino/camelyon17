@@ -11,20 +11,20 @@ from vae import VAE
 
 def make_data(args):
     n_test_examples = args.n_test_examples if args.task == Task.VAE else None
-    data_train, data_val_iid, data_val_ood, data_test = data.make_data(args.batch_size, args.eval_batch_size,
+    data_train, val_id, data_val_ood, data_test = data.make_data(args.batch_size, args.eval_batch_size,
         args.n_workers, n_test_examples)
     if args.eval_stage is None:
         data_eval = None
     elif args.eval_stage == EvalStage.TRAIN:
         data_eval = data_train
     elif args.eval_stage == EvalStage.VAL_ID:
-        data_eval = data_val_iid
+        data_eval = val_id
     elif args.eval_stage == EvalStage.VAL_OOD:
         data_eval = data_val_ood
     else:
         assert args.eval_stage == EvalStage.TEST
         data_eval = data_test
-    return data_train, data_val_iid, data_val_ood, data_test, data_eval
+    return data_train, val_id, data_val_ood, data_test, data_eval
 
 
 def ckpt_fpath(args, task):
