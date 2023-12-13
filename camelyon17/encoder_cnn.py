@@ -1,9 +1,14 @@
+import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
 from torch import Tensor
 from typing import Tuple
 from torchvision.models.densenet import _DenseBlock, _Transition
+
+
+IMG_ENCODE_SHAPE = (48, 6, 6)
+IMG_ENCODE_SIZE = np.prod(IMG_ENCODE_SHAPE)
 
 
 class EncoderCNN(nn.Module):

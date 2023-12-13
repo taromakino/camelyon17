@@ -1,21 +1,14 @@
-import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
 from data import N_CLASSES, N_ENVS
-from encoder_cnn import EncoderCNN
-from decoder_cnn import DecoderCNN
+from encoder_cnn import IMG_ENCODE_SIZE, EncoderCNN
+from decoder_cnn import IMG_DECODE_SHAPE, IMG_DECODE_SIZE, DecoderCNN
 from torch.optim import Adam
 from torchmetrics import Accuracy
 from utils.nn_utils import SkipMLP, one_hot, arr_to_cov
-
-
-IMG_ENCODE_SHAPE = (48, 6, 6)
-IMG_ENCODE_SIZE = np.prod(IMG_ENCODE_SHAPE)
-IMG_DECODE_SHAPE = (24, 6, 6)
-IMG_DECODE_SIZE = np.prod(IMG_DECODE_SHAPE)
 
 
 class Encoder(nn.Module):
