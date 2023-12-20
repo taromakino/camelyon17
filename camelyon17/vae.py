@@ -155,6 +155,12 @@ class VAE(pl.LightningModule):
         loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
         return loss
 
+    def validation_step(self, batch, batch_idx, dataloader_idx):
+        x, y, e = batch
+        log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
+        self.log('val_loss', loss, on_step=False, on_epoch=True, add_dataloader_idx=False)
+
     def init_z(self, x, y_value, e_value):
         batch_size = len(x)
         y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
@@ -204,21 +210,6 @@ class VAE(pl.LightningModule):
         y_candidates = torch.tensor(y_candidates, device=self.device)
         y_pred = y_candidates[loss_candidates.argmin(dim=1)]
         return y_pred
-
-    def validation_step(self, batch, batch_idx, dataloader_idx):
-        x, y, e = batch
-        if dataloader_idx == 0:
-            log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
-            loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
-            self.log('val_loss', loss, on_step=False, on_epoch=True, add_dataloader_idx=False)
-        else:
-            assert dataloader_idx == 1
-            with torch.set_grad_enabled(True):
-                y_pred = self.classify(x)
-                self.test_acc.update(y_pred, y)
-
-    def on_validation_epoch_end(self):
-        self.log('test_acc', self.test_acc.compute())
 
     def test_step(self, batch, batch_idx):
         x, y, e = batch

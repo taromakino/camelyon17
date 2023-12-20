@@ -31,15 +31,7 @@ class Camelyon17Dataset(Dataset):
         return x, y, e
 
 
-def subsample(rng, df, n_debug_examples):
-    if len(df) < n_debug_examples:
-        return df
-    else:
-        idxs = rng.choice(len(df), n_debug_examples, replace=False)
-        return df.iloc[idxs]
-
-
-def make_data(batch_size, eval_batch_size, n_workers, n_test_examples):
+def make_data(batch_size, eval_batch_size, n_workers):
     rng = np.random.RandomState(0)
     dpath = os.path.join(os.environ['DATA_DPATH'], 'camelyon17_v1.0')
     df = pd.read_csv(os.path.join(dpath, 'metadata.csv'), index_col=0, dtype={'patient': 'str'})
@@ -71,9 +63,6 @@ def make_data(batch_size, eval_batch_size, n_workers, n_test_examples):
     df_val_id.loc[:, 'center'] = [unordered_to_ordered[elem] for elem in df_val_id.center]
     df_val_ood.loc[:, 'center'] = np.nan
     df_test.loc[:, 'center'] = np.nan
-
-    if n_test_examples is not None:
-        df_test = subsample(rng, df_test, n_test_examples)
 
     data_train = DataLoader(Camelyon17Dataset(dpath, df_train), shuffle=True, pin_memory=True, batch_size=batch_size,
         num_workers=n_workers)

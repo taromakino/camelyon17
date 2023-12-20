@@ -10,9 +10,7 @@ from vae import VAE
 
 
 def make_data(args):
-    n_test_examples = args.n_test_examples if args.task == Task.VAE else None
-    data_train, val_id, data_val_ood, data_test = data.make_data(args.batch_size, args.eval_batch_size,
-        args.n_workers, n_test_examples)
+    data_train, val_id, data_val_ood, data_test = data.make_data(args.batch_size, args.eval_batch_size, args.n_workers)
     if args.eval_stage is None:
         data_eval = None
     elif args.eval_stage == EvalStage.TRAIN:
@@ -71,11 +69,8 @@ def main(args):
             callbacks=[
                 ModelCheckpoint(monitor='val_loss', filename='best')],
             max_epochs=args.n_epochs,
-            check_val_every_n_epoch=args.check_val_every_n_epoch,
-            num_sanity_val_steps=0,
-            deterministic=True,
-            inference_mode=False)
-        trainer.fit(model, data_train, [data_val_id, data_test])
+            deterministic=True)
+        trainer.fit(model, data_train, data_val_id)
     else:
         assert args.task == Task.CLASSIFY
         trainer = pl.Trainer(
@@ -95,7 +90,6 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--eval_batch_size', type=int, default=1024)
     parser.add_argument('--n_workers', type=int, default=8)
-    parser.add_argument('--n_test_examples', type=int, default=1024)
     parser.add_argument('--z_size', type=int, default=128)
     parser.add_argument('--rank', type=int, default=64)
     parser.add_argument('--h_sizes', nargs='+', type=int, default=[256, 256])
