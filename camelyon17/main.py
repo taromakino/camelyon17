@@ -98,7 +98,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_test_examples', type=int, default=1024)
     parser.add_argument('--z_size', type=int, default=128)
     parser.add_argument('--rank', type=int, default=64)
-    parser.add_argument('--h_sizes', nargs='+', type=int, default=[512, 512])
+    parser.add_argument('--h_sizes', nargs='+', type=int, default=[256, 256])
     parser.add_argument('--y_mult', type=float, default=1)
     parser.add_argument('--beta', type=float, default=1)
     parser.add_argument('--dropout_prob', type=float, default=0.1)
