@@ -101,8 +101,8 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, dropout_prob, reg_mult, init_sd, lr, weight_decay,
-            lr_infer, n_infer_steps):
+    def __init__(self, task, z_size, rank, h_sizes, y_mult, beta, reg_mult, init_sd, lr, weight_decay, lr_infer,
+            n_infer_steps):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
@@ -122,7 +122,6 @@ class VAE(pl.LightningModule):
         self.prior = Prior(z_size, rank, init_sd)
         # p(y|z)
         self.classifier = SkipMLP(z_size, h_sizes, 1)
-        self.dropout = nn.Dropout(dropout_prob)
         self.test_acc = Accuracy('binary')
 
     def sample_z(self, dist):
@@ -138,7 +137,6 @@ class VAE(pl.LightningModule):
         z_s = self.sample_z(posterior_spurious)
         # E_q(z_c,z_s|x)[log p(x|z_c,z_s)]
         z = torch.hstack((z_c, z_s))
-        z = self.dropout(z)
         log_prob_x_z = self.decoder(x, z).mean()
         # E_q(z_c|x)[log p(y|z_c)]
         y_pred = self.classifier(z_c).view(-1)
@@ -168,7 +166,6 @@ class VAE(pl.LightningModule):
         return nn.Parameter(z.detach())
 
     def infer_loss(self, x, y, e, z):
-        z = self.dropout(z)
         # log p(x|z_c,z_s)
         log_prob_x_z = self.decoder(x, z)
         # log p(y|z_c)
