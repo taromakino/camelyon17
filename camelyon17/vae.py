@@ -155,7 +155,7 @@ class VAE(pl.LightningModule):
         loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
         return loss
 
-    def validation_step(self, batch, batch_idx, dataloader_idx):
+    def validation_step(self, batch, batch_idx):
         x, y, e = batch
         log_prob_x_z, log_prob_y_zc, kl, prior_norm = self.loss(x, y, e)
         loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.reg_mult * prior_norm
