@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from data import N_CLASSES, N_ENVS
 from encoder_cnn import IMG_ENCODE_SIZE, EncoderCNN
 from decoder_cnn import IMG_DECODE_SHAPE, IMG_DECODE_SIZE, DecoderCNN
-from torch.optim import Adam
+from torch.optim import AdamW
 from torchmetrics import Accuracy
 from utils.nn_utils import SkipMLP, one_hot, arr_to_cov
 
@@ -191,7 +191,7 @@ class VAE(pl.LightningModule):
         z_param = self.init_z(x, y_value, e_value)
         y = torch.full((batch_size,), y_value, dtype=torch.long, device=self.device)
         e = torch.full((batch_size,), e_value, dtype=torch.long, device=self.device)
-        optim = Adam([z_param], lr=self.lr_infer)
+        optim = AdamW([z_param], lr=self.lr_infer)
         for _ in range(self.n_infer_steps):
             optim.zero_grad()
             loss = self.infer_loss(x, y, e, z_param)
@@ -221,4 +221,4 @@ class VAE(pl.LightningModule):
         self.log('test_acc', self.test_acc.compute())
 
     def configure_optimizers(self):
-        return Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        return AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)

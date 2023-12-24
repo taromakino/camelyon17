@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from encoder_cnn import IMG_ENCODE_SIZE, EncoderCNN
-from torch.optim import Adam
+from torch.optim import AdamW
 from torchmetrics import Accuracy
 
 
@@ -50,4 +50,4 @@ class ERM(pl.LightningModule):
         self.log('test_acc', self.test_acc.compute())
 
     def configure_optimizers(self):
-        return Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        return AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
