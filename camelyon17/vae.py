@@ -115,7 +115,7 @@ class VAE(pl.LightningModule):
         # p(z_c,z_s|y,e)
         self.prior = Prior(z_size, init_sd)
         # p(y|z)
-        self.classifier = SkipMLP(z_size, h_sizes, 1)
+        self.classifier = nn.Linear(z_size, 1)
         self.val_acc = Accuracy('binary')
         self.test_acc = Accuracy('binary')
 
