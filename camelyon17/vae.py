@@ -142,22 +142,19 @@ class VAE(pl.LightningModule):
         kl_spurious = D.kl_divergence(posterior_spurious, prior_spurious).mean()
         kl = kl_causal + kl_spurious
         prior_reg = (torch.hstack((prior_causal.loc, prior_spurious.loc)) ** 2).mean()
-        return log_prob_x_z, log_prob_y_zc, kl, prior_reg, y_pred
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.prior_reg_mult * prior_reg
+        return loss, y_pred
 
     def training_step(self, batch, batch_idx):
         x, y, e = batch
-        log_prob_x_z, log_prob_y_zc, kl, prior_reg, y_pred = self.loss(x, y, e)
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.prior_reg_mult * prior_reg
+        loss, y_pred = self.loss(x, y, e)
         return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
         x, y, e = batch
         if dataloader_idx == 0:
-            log_prob_x_z, log_prob_y_zc, kl, prior_reg, y_pred = self.loss(x, y, e)
-            loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.prior_reg_mult * prior_reg
-            invariant_loss = -log_prob_x_z - self.y_mult * log_prob_y_zc
+            loss, y_pred = self.loss(x, y, e)
             self.log('val_loss', loss, on_step=False, on_epoch=True, add_dataloader_idx=False)
-            self.log('val_invariant_loss', invariant_loss, on_step=False, on_epoch=True, add_dataloader_idx=False)
             self.val_acc.update(y_pred, y)
         else:
             assert dataloader_idx == 1
