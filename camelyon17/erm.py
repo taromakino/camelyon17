@@ -27,11 +27,7 @@ class ERM(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         y_pred, y = self(*batch)
         loss = F.binary_cross_entropy_with_logits(y_pred, y.float())
-        self.train_acc.update(y_pred, y)
         return loss
-
-    def on_train_epoch_end(self):
-        self.log('train_acc', self.train_acc.compute())
 
     def validation_step(self, batch, batch_idx):
         y_pred, y = self(*batch)
