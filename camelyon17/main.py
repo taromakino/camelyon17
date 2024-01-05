@@ -37,8 +37,8 @@ def make_model(args):
         else:
             return ERM.load_from_checkpoint(ckpt_fpath(args, args.task))
     elif args.task == Task.VAE:
-        return VAE(args.task, args.z_size, args.rank, args.h_sizes, args.y_mult, args.beta, args.reg_mult,
-            args.init_sd, args.lr, args.weight_decay, args.lr_infer, args.n_infer_steps)
+        return VAE(args.task, args.z_size, args.h_sizes, args.y_mult, args.beta, args.reg_mult, args.init_sd, args.lr,
+            args.weight_decay)
     else:
         assert args.task == Task.CLASSIFY
         return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task)
@@ -70,14 +70,13 @@ def main(args):
                 ModelCheckpoint(monitor='val_loss', filename='best')],
             max_epochs=args.n_epochs,
             deterministic=True)
-        trainer.fit(model, data_train, data_val_id)
+        trainer.fit(model, data_train, [data_val_id, data_test])
     else:
         assert args.task == Task.CLASSIFY
         trainer = pl.Trainer(
             logger=CSVLogger(os.path.join(args.dpath, args.task.value, args.eval_stage.value), name='', version=args.seed),
             max_epochs=1,
-            deterministic=True,
-            inference_mode=False)
+            deterministic=True)
         trainer.test(model, data_eval)
 
 
@@ -91,7 +90,6 @@ if __name__ == '__main__':
     parser.add_argument('--eval_batch_size', type=int, default=1024)
     parser.add_argument('--n_workers', type=int, default=8)
     parser.add_argument('--z_size', type=int, default=128)
-    parser.add_argument('--rank', type=int, default=64)
     parser.add_argument('--h_sizes', nargs='+', type=int, default=[256, 256])
     parser.add_argument('--y_mult', type=float, default=1)
     parser.add_argument('--beta', type=float, default=1)
@@ -99,7 +97,5 @@ if __name__ == '__main__':
     parser.add_argument('--init_sd', type=float, default=1e-3)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--weight_decay', type=float, default=1e-5)
-    parser.add_argument('--lr_infer', type=float, default=1)
-    parser.add_argument('--n_infer_steps', type=int, default=200)
     parser.add_argument('--n_epochs', type=int, default=50)
     main(parser.parse_args())
