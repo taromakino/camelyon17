@@ -155,10 +155,9 @@ class VAE(pl.LightningModule):
         if dataloader_idx == 0:
             log_prob_x_z, log_prob_y_zc, kl, prior_reg, y_pred = self.loss(x, y, e)
             loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.prior_reg_mult * prior_reg
-            self.log('val_log_prob_x_z', log_prob_x_z, on_step=False, on_epoch=True, add_dataloader_idx=False)
-            self.log('val_log_prob_y_zc', log_prob_y_zc, on_step=False, on_epoch=True, add_dataloader_idx=False)
-            self.log('val_kl', kl, on_step=False, on_epoch=True, add_dataloader_idx=False)
+            invariant_loss = -log_prob_x_z - self.y_mult * log_prob_y_zc
             self.log('val_loss', loss, on_step=False, on_epoch=True, add_dataloader_idx=False)
+            self.log('val_invariant_loss', invariant_loss, on_step=False, on_epoch=True, add_dataloader_idx=False)
             self.val_acc.update(y_pred, y)
         else:
             assert dataloader_idx == 1
