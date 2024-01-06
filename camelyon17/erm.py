@@ -18,7 +18,8 @@ class ERM(pl.LightningModule):
         )
         self.lr = lr
         self.weight_decay = weight_decay
-        self.val_acc = Accuracy('binary')
+        self.val_id_acc = Accuracy('binary')
+        self.val_ood_acc = Accuracy('binary')
         self.test_acc = Accuracy('binary')
 
     def forward(self, x, y, e):
@@ -37,13 +38,16 @@ class ERM(pl.LightningModule):
         if dataloader_idx == 0:
             loss = F.binary_cross_entropy_with_logits(y_pred, y.float())
             self.log('val_loss', loss, on_step=False, on_epoch=True, add_dataloader_idx=False)
-            self.val_acc.update(y_pred, y)
+            self.val_id_acc.update(y_pred, y)
+        elif dataloader_idx == 1:
+            self.val_ood_acc.update(y_pred, y)
         else:
-            assert dataloader_idx == 1
+            assert dataloader_idx == 2
             self.test_acc.update(y_pred, y)
 
     def on_validation_epoch_end(self):
-        self.log('val_acc', self.val_acc.compute())
+        self.log('val_id_acc', self.val_id_acc.compute())
+        self.log('val_ood_acc', self.val_id_acc.compute())
         self.log('test_acc', self.test_acc.compute())
 
     def test_step(self, batch, batch_idx):
