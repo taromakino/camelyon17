@@ -15,16 +15,20 @@ class Encoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
         self.z_size = z_size
-        self.encoder_cnn = EncoderCNN()
+        # Causal
+        self.encoder_cnn_causal = EncoderCNN()
         self.mu_causal = SkipMLP(IMG_ENCODE_SIZE, h_sizes, z_size)
         self.offdiag_causal = SkipMLP(IMG_ENCODE_SIZE, h_sizes, z_size ** 2)
         self.diag_causal = SkipMLP(IMG_ENCODE_SIZE, h_sizes, z_size)
+        # Spurious
+        self.encoder_cnn_spurious = EncoderCNN()
         self.mu_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
         self.offdiag_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size ** 2)
         self.diag_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
 
     def causal_dist(self, x):
         batch_size = len(x)
+        x = self.encoder_cnn_causal(x).flatten(start_dim=1)
         mu = self.mu_causal(x)
         offdiag = self.offdiag_causal(x)
         offdiag = offdiag.reshape(batch_size, self.z_size, self.z_size)
@@ -34,6 +38,7 @@ class Encoder(nn.Module):
 
     def spurious_dist(self, x, y, e):
         batch_size = len(x)
+        x = self.encoder_cnn_spurious(x).flatten(start_dim=1)
         y_one_hot = one_hot(y, N_CLASSES)
         e_one_hot = one_hot(e, N_ENVS)
         mu = self.mu_spurious(x, y_one_hot, e_one_hot)
@@ -44,7 +49,6 @@ class Encoder(nn.Module):
         return D.MultivariateNormal(mu, cov)
 
     def forward(self, x, y, e):
-        x = self.encoder_cnn(x).flatten(start_dim=1)
         causal_dist = self.causal_dist(x)
         spurious_dist = self.spurious_dist(x, y, e)
         return causal_dist, spurious_dist
@@ -66,13 +70,14 @@ class Decoder(nn.Module):
 class Prior(nn.Module):
     def __init__(self, z_size, init_sd):
         super().__init__()
+        # Causal
         self.mu_causal = nn.Parameter(torch.zeros(z_size))
         self.offdiag_causal = nn.Parameter(torch.zeros(z_size, z_size))
         self.diag_causal = nn.Parameter(torch.zeros(z_size))
         nn.init.normal_(self.mu_causal, 0, init_sd)
         nn.init.normal_(self.offdiag_causal, 0, init_sd)
         nn.init.normal_(self.diag_causal, 0, init_sd)
-        # p(z_s|y,e)
+        # Spurious
         self.mu_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size))
         self.offdiag_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size, z_size))
         self.diag_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size))
@@ -166,9 +171,7 @@ class VAE(pl.LightningModule):
         self.log('test_acc', self.test_acc.compute())
 
     def classify(self, x):
-        x = self.encoder.encoder_cnn(x).flatten(start_dim=1)
-        causal_dist = self.encoder.causal_dist(x)
-        z_c = causal_dist.loc
+        z_c = self.encoder.causal_dist(x).loc
         y_pred = self.classifier(z_c).view(-1)
         return y_pred
 
