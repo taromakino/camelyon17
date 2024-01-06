@@ -60,9 +60,9 @@ class Decoder(nn.Module):
         self.mlp = SkipMLP(z_size, h_sizes, IMG_DECODE_SIZE)
         self.decoder_cnn = DecoderCNN()
 
-    def forward(self, x, z):
-        batch_size = len(x)
-        x_pred = self.mlp(z).view(batch_size, *IMG_DECODE_SHAPE)
+    def forward(self, z_subset):
+        batch_size = len(z_subset)
+        x_pred = self.mlp(z_subset).view(batch_size, *IMG_DECODE_SHAPE)
         x_pred = self.decoder_cnn(x_pred).view(batch_size, -1)
         return x_pred
 
