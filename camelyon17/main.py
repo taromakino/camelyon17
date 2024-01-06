@@ -70,7 +70,7 @@ def main(args):
                 ModelCheckpoint(monitor='val_loss', filename='best')],
             max_epochs=args.n_epochs,
             deterministic=True)
-        trainer.fit(model, data_train, [data_val_id, data_test])
+        trainer.fit(model, data_train, [data_val_id, data_val_ood, data_test])
     else:
         assert args.task == Task.CLASSIFY
         trainer = pl.Trainer(
