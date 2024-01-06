@@ -57,14 +57,14 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
-        self.mlp = SkipMLP(2 * z_size, h_sizes, IMG_DECODE_SIZE)
+        self.mlp = SkipMLP(z_size, h_sizes, IMG_DECODE_SIZE)
         self.decoder_cnn = DecoderCNN()
 
     def forward(self, x, z):
         batch_size = len(x)
         x_pred = self.mlp(z).view(batch_size, *IMG_DECODE_SHAPE)
         x_pred = self.decoder_cnn(x_pred).view(batch_size, -1)
-        return -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1)
+        return x_pred
 
 
 class Prior(nn.Module):
@@ -116,7 +116,8 @@ class VAE(pl.LightningModule):
         # q(z_c,z_s|x)
         self.encoder = Encoder(z_size, h_sizes)
         # p(x|z_c, z_s)
-        self.decoder = Decoder(z_size, h_sizes)
+        self.decoder_causal = Decoder(z_size, h_sizes)
+        self.decoder_spurious = Decoder(z_size, h_sizes)
         # p(z_c,z_s|y,e)
         self.prior = Prior(z_size, init_sd)
         # p(y|z)
@@ -131,13 +132,16 @@ class VAE(pl.LightningModule):
         return mu + torch.bmm(scale_tril, epsilon).squeeze(-1)
 
     def loss(self, x, y, e):
+        batch_size = len(x)
         # z_c,z_s ~ q(z_c,z_s|x)
         posterior_causal, posterior_spurious = self.encoder(x, y, e)
         z_c = self.sample_z(posterior_causal)
         z_s = self.sample_z(posterior_spurious)
         # E_q(z_c,z_s|x)[log p(x|z_c,z_s)]
-        z = torch.hstack((z_c, z_s))
-        log_prob_x_z = self.decoder(x, z).mean()
+        x_pred_causal = self.decoder_causal(z_c)
+        x_pred_spurious = self.decoder_spurious(z_s)
+        x_pred = x_pred_causal + x_pred_spurious
+        log_prob_x_z = -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1).mean()
         # E_q(z_c|x)[log p(y|z_c)]
         y_pred = self.classifier(z_c).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float())

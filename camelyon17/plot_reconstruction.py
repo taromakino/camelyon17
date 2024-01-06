@@ -5,7 +5,6 @@ import pytorch_lightning as pl
 import torch
 from argparse import ArgumentParser
 from data import N_CLASSES, N_ENVS, make_data
-from decoder_cnn import IMG_DECODE_SHAPE
 from utils.enums import Task
 from vae import VAE
 
@@ -21,10 +20,10 @@ def sample_prior(rng, model):
     return zc_sample, zs_sample
 
 
-def reconstruct_x(model, z):
-    batch_size = len(z)
-    x_pred = model.decoder.mlp(z).reshape(batch_size, *IMG_DECODE_SHAPE)
-    x_pred = model.decoder.decoder_cnn(x_pred)
+def reconstruct_x(model, z_c, z_s):
+    x_pred_causal = model.decoder_causal(z_c)
+    x_pred_spurious = model.decoder_spurious(z_s)
+    x_pred = x_pred_causal + x_pred_spurious
     return torch.sigmoid(x_pred)
 
 
@@ -47,20 +46,19 @@ def main(args):
         x_seed, y_seed, e_seed = x_seed[None].to(model.device), y_seed[None].to(model.device), e_seed[None].to(model.device)
         causal_dist, spurious_dist = model.encoder(x_seed, y_seed, e_seed)
         zc_seed, zs_seed = causal_dist.loc, spurious_dist.loc
-        z_seed = torch.hstack((zc_seed, zs_seed))
         fig, axes = plt.subplots(2, args.n_cols, figsize=(2 * args.n_cols, 2 * 2))
         for ax in axes.flatten():
             ax.set_xticks([])
             ax.set_yticks([])
         plot(axes[0, 0], x_seed)
         plot(axes[1, 0], x_seed)
-        x_pred = reconstruct_x(model, z_seed)
+        x_pred = reconstruct_x(model, zc_seed, zs_seed)
         plot(axes[0, 1], x_pred)
         plot(axes[1, 1], x_pred)
         for col_idx in range(2, args.n_cols):
             zc_sample, zs_sample = sample_prior(rng, model)
-            x_pred_causal = reconstruct_x(model, torch.hstack((zc_sample, zs_seed)))
-            x_pred_spurious = reconstruct_x(model, torch.hstack((zc_seed, zs_sample)))
+            x_pred_causal = reconstruct_x(model, zc_sample, zs_seed)
+            x_pred_spurious = reconstruct_x(model, zc_seed, zs_sample)
             plot(axes[0, col_idx], x_pred_causal)
             plot(axes[1, col_idx], x_pred_spurious)
         fig_dpath = os.path.join(task_dpath, f'version_{args.seed}', 'fig', 'plot_reconstruction')
