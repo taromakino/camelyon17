@@ -21,9 +21,8 @@ def sample_prior(rng, model):
 
 
 def reconstruct_x(model, z_c, z_s):
-    x_pred_causal = model.decoder_causal(z_c)
-    x_pred_spurious = model.decoder_spurious(z_s)
-    x_pred = x_pred_causal + x_pred_spurious
+    z = torch.hstack((z_c, z_s))
+    x_pred = model.decoder(z)
     return torch.sigmoid(x_pred)
 
 
