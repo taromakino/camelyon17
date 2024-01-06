@@ -104,7 +104,7 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, h_sizes, y_mult, beta, dropout_prob, prior_reg_mult, init_sd, lr, weight_decay):
+    def __init__(self, task, z_size, h_sizes, y_mult, beta, prior_reg_mult, init_sd, lr, weight_decay):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
@@ -121,7 +121,6 @@ class VAE(pl.LightningModule):
         self.prior = Prior(z_size, init_sd)
         # p(y|z)
         self.classifier = nn.Linear(z_size, 1)
-        self.dropout = nn.Dropout(dropout_prob)
         self.val_acc = Accuracy('binary')
         self.test_acc = Accuracy('binary')
 
@@ -140,7 +139,7 @@ class VAE(pl.LightningModule):
         z = torch.hstack((z_c, z_s))
         log_prob_x_z = self.decoder(x, z).mean()
         # E_q(z_c|x)[log p(y|z_c)]
-        y_pred = self.classifier(self.dropout(z_c)).view(-1)
+        y_pred = self.classifier(z_c).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float())
         # KL(q(z_c,z_s|x) || p(z_c|e)p(z_s|y,e))
         prior_causal, prior_spurious = self.prior(y, e)
@@ -173,7 +172,7 @@ class VAE(pl.LightningModule):
 
     def classify(self, x):
         z_c = self.encoder.causal_dist(x).loc
-        y_pred = self.classifier(self.dropout(z_c)).view(-1)
+        y_pred = self.classifier(z_c).view(-1)
         return y_pred
 
     def test_step(self, batch, batch_idx):
