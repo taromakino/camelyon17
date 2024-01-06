@@ -120,7 +120,6 @@ class VAE(pl.LightningModule):
         self.prior = Prior(z_size, init_sd)
         # p(y|z)
         self.classifier = nn.Linear(z_size, 1)
-        self.val_id_acc_elbo = Accuracy('binary')
         self.val_id_acc = Accuracy('binary')
         self.val_ood_acc = Accuracy('binary')
         self.test_acc = Accuracy('binary')
@@ -152,20 +151,19 @@ class VAE(pl.LightningModule):
         kl = kl_causal + kl_spurious
         prior_reg = (torch.hstack((prior_causal.loc, prior_spurious.loc)) ** 2).mean()
         loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.prior_reg_mult * prior_reg
-        return loss, y_pred
+        return loss
 
     def training_step(self, batch, batch_idx):
         x, y, e = batch
-        loss, y_pred = self.loss(x, y, e)
+        loss = self.loss(x, y, e)
         return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
         x, y, e = batch
         y_pred = self.classify(x)
         if dataloader_idx == 0:
-            loss, y_pred_elbo = self.loss(x, y, e)
+            loss = self.loss(x, y, e)
             self.log('val_loss', loss, on_step=False, on_epoch=True, add_dataloader_idx=False)
-            self.val_id_acc_elbo.update(y_pred_elbo, y)
             self.val_id_acc.update(y_pred, y)
         elif dataloader_idx == 1:
             self.val_ood_acc.update(y_pred, y)
@@ -174,7 +172,6 @@ class VAE(pl.LightningModule):
             self.test_acc.update(y_pred, y)
 
     def on_validation_epoch_end(self):
-        self.log('val_id_acc_elbo', self.val_id_acc_elbo.compute())
         self.log('val_id_acc', self.val_id_acc.compute())
         self.log('val_ood_acc', self.val_ood_acc.compute())
         self.log('test_acc', self.test_acc.compute())
