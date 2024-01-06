@@ -148,7 +148,7 @@ class VAE(pl.LightningModule):
         kl_causal = D.kl_divergence(posterior_causal, prior_causal).mean()
         kl_spurious = D.kl_divergence(posterior_spurious, prior_spurious).mean()
         kl = kl_causal + kl_spurious
-        kl = torch.max(self.kl_lb, kl)
+        kl = torch.max(torch.full_like(kl, self.kl_lb), kl)
         prior_reg = (torch.hstack((prior_causal.loc, prior_spurious.loc)) ** 2).mean()
         loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.prior_reg_mult * prior_reg
         return loss
