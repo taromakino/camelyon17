@@ -53,7 +53,7 @@ def main(args):
             trainer = pl.Trainer(
                 logger=CSVLogger(os.path.join(args.dpath, args.task.value), name='', version=args.seed),
                 callbacks=[
-                    ModelCheckpoint(monitor='val_acc', mode='max', filename='best')],
+                    ModelCheckpoint(monitor='val_id_acc', mode='max', filename='best')],
                 max_epochs=args.n_epochs,
                 deterministic=True)
             trainer.fit(model, data_train, [data_val_id, data_val_ood, data_test])
