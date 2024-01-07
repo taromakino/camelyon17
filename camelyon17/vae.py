@@ -102,7 +102,7 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, h_sizes, y_mult, prior_reg_mult, init_sd, lr, weight_decay):
+    def __init__(self, task, z_size, h_sizes, y_mult, prior_reg_mult, init_sd, lr, weight_decay, kl_anneal_epochs):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
@@ -110,6 +110,7 @@ class VAE(pl.LightningModule):
         self.prior_reg_mult = prior_reg_mult
         self.lr = lr
         self.weight_decay = weight_decay
+        self.kl_anneal_epochs = kl_anneal_epochs
         # q(z_c,z_s|x)
         self.encoder = Encoder(z_size, h_sizes)
         # p(x|z_c, z_s)
@@ -127,6 +128,9 @@ class VAE(pl.LightningModule):
         batch_size, z_size = mu.shape
         epsilon = torch.randn(batch_size, z_size, 1).to(self.device)
         return mu + torch.bmm(scale_tril, epsilon).squeeze(-1)
+
+    def kl_mult(self):
+        return min(1., self.current_epoch / self.kl_anneal_epochs)
 
     def loss(self, x, y, e):
         batch_size = len(x)
@@ -147,7 +151,7 @@ class VAE(pl.LightningModule):
         kl_spurious = D.kl_divergence(posterior_spurious, prior_spurious).mean()
         kl = kl_causal + kl_spurious
         prior_reg = (torch.hstack((prior_causal.loc, prior_spurious.loc)) ** 2).mean()
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + kl + self.prior_reg_mult * prior_reg
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.kl_mult() * kl + self.prior_reg_mult * prior_reg
         return loss, kl
 
     def training_step(self, batch, batch_idx):
