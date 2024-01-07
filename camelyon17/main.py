@@ -38,7 +38,7 @@ def make_model(args):
             return ERM.load_from_checkpoint(ckpt_fpath(args, args.task))
     elif args.task == Task.VAE:
         return VAE(args.task, args.z_size, args.h_sizes, args.y_mult, args.beta, args.prior_reg_mult, args.init_sd,
-            args.kl_lb, args.lr, args.weight_decay)
+            args.lr, args.weight_decay, args.kl_anneal_epochs)
     else:
         assert args.task == Task.CLASSIFY
         return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task)
@@ -95,8 +95,8 @@ if __name__ == '__main__':
     parser.add_argument('--beta', type=float, default=1)
     parser.add_argument('--prior_reg_mult', type=float, default=1e-5)
     parser.add_argument('--init_sd', type=float, default=1)
-    parser.add_argument('--kl_lb', type=float, default=0)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--weight_decay', type=float, default=1e-5)
+    parser.add_argument('--kl_anneal_epochs', type=int, default=5)
     parser.add_argument('--n_epochs', type=int, default=50)
     main(parser.parse_args())
