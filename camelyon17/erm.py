@@ -47,7 +47,7 @@ class ERM(pl.LightningModule):
 
     def on_validation_epoch_end(self):
         self.log('val_id_acc', self.val_id_acc.compute())
-        self.log('val_ood_acc', self.val_id_acc.compute())
+        self.log('val_ood_acc', self.val_ood_acc.compute())
         self.log('test_acc', self.test_acc.compute())
 
     def test_step(self, batch, batch_idx):

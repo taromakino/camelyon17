@@ -97,6 +97,6 @@ if __name__ == '__main__':
     parser.add_argument('--init_sd', type=float, default=1)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--weight_decay', type=float, default=1e-5)
-    parser.add_argument('--kl_anneal_epochs', type=int, default=5)
+    parser.add_argument('--kl_anneal_epochs', type=int, default=10)
     parser.add_argument('--n_epochs', type=int, default=50)
     main(parser.parse_args())
