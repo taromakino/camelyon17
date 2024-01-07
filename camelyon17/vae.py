@@ -151,18 +151,19 @@ class VAE(pl.LightningModule):
         kl = torch.max(torch.full_like(kl, self.kl_lb), kl)
         prior_reg = (torch.hstack((prior_causal.loc, prior_spurious.loc)) ** 2).mean()
         loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.prior_reg_mult * prior_reg
-        return loss
+        return loss, kl
 
     def training_step(self, batch, batch_idx):
         x, y, e = batch
-        loss = self.loss(x, y, e)
+        loss, kl = self.loss(x, y, e)
         return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
         x, y, e = batch
         y_pred = self.classify(x)
         if dataloader_idx == 0:
-            loss = self.loss(x, y, e)
+            loss, kl = self.loss(x, y, e)
+            self.log('val_kl', kl, on_step=False, on_epoch=True, add_dataloader_idx=False)
             self.log('val_loss', loss, on_step=False, on_epoch=True, add_dataloader_idx=False)
             self.val_id_acc.update(y_pred, y)
         elif dataloader_idx == 1:
