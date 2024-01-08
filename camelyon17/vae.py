@@ -15,47 +15,47 @@ class Encoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
         self.z_size = z_size
-        self.encoder_cnn = EncoderCNN()
-        # Causal
-        self.mu_causal = SkipMLP(IMG_ENCODE_SIZE, h_sizes, z_size)
-        self.offdiag_causal = SkipMLP(IMG_ENCODE_SIZE, h_sizes, z_size ** 2)
-        self.diag_causal = SkipMLP(IMG_ENCODE_SIZE, h_sizes, z_size)
-        # Spurious
-        self.mu_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
-        self.offdiag_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size ** 2)
-        self.diag_spurious = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.ecnn = EncoderCNN()
+        # Parent
+        self.mu_parent = SkipMLP(IMG_ENCODE_SIZE, h_sizes, z_size)
+        self.offdiag_parent = SkipMLP(IMG_ENCODE_SIZE, h_sizes, z_size ** 2)
+        self.diag_parent = SkipMLP(IMG_ENCODE_SIZE, h_sizes, z_size)
+        # Child
+        self.mu_child = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
+        self.offdiag_child = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size ** 2)
+        self.diag_child = SkipMLP(IMG_ENCODE_SIZE + N_CLASSES + N_ENVS, h_sizes, z_size)
 
-    def causal_dist(self, x):
+    def parent_dist(self, x):
         batch_size = len(x)
-        mu = self.mu_causal(x)
-        offdiag = self.offdiag_causal(x)
+        mu = self.mu_parent(x)
+        offdiag = self.offdiag_parent(x)
         offdiag = offdiag.reshape(batch_size, self.z_size, self.z_size)
-        diag = self.diag_causal(x)
+        diag = self.diag_parent(x)
         cov = arr_to_cov(offdiag, diag)
         return D.MultivariateNormal(mu, cov)
 
-    def spurious_dist(self, x, y, e):
+    def child_dist(self, x, y, e):
         batch_size = len(x)
         y_one_hot = one_hot(y, N_CLASSES)
         e_one_hot = one_hot(e, N_ENVS)
-        mu = self.mu_spurious(x, y_one_hot, e_one_hot)
-        offdiag = self.offdiag_spurious(x, y_one_hot, e_one_hot)
+        mu = self.mu_child(x, y_one_hot, e_one_hot)
+        offdiag = self.offdiag_child(x, y_one_hot, e_one_hot)
         offdiag = offdiag.reshape(batch_size, self.z_size, self.z_size)
-        diag = self.diag_spurious(x, y_one_hot, e_one_hot)
+        diag = self.diag_child(x, y_one_hot, e_one_hot)
         cov = arr_to_cov(offdiag, diag)
         return D.MultivariateNormal(mu, cov)
 
     def forward(self, x, y, e):
-        x = self.encoder_cnn(x).flatten(start_dim=1)
-        causal_dist = self.causal_dist(x)
-        spurious_dist = self.spurious_dist(x, y, e)
-        return causal_dist, spurious_dist
+        x = self.ecnn(x).flatten(start_dim=1)
+        parent_dist = self.parent_dist(x)
+        child_dist = self.child_dist(x, y, e)
+        return parent_dist, child_dist
 
 
 class Decoder(nn.Module):
     def __init__(self, z_size, h_sizes):
         super().__init__()
-        self.mlp = SkipMLP(2 * z_size, h_sizes, IMG_DECODE_SIZE)
+        self.mlp = SkipMLP(z_size, h_sizes, IMG_DECODE_SIZE)
         self.decoder_cnn = DecoderCNN()
 
     def forward(self, z):
@@ -68,37 +68,37 @@ class Decoder(nn.Module):
 class Prior(nn.Module):
     def __init__(self, z_size, init_sd):
         super().__init__()
-        # Causal
-        self.mu_causal = nn.Parameter(torch.zeros(z_size))
-        self.offdiag_causal = nn.Parameter(torch.zeros(z_size, z_size))
-        self.diag_causal = nn.Parameter(torch.zeros(z_size))
-        nn.init.normal_(self.mu_causal, 0, init_sd)
-        nn.init.normal_(self.offdiag_causal, 0, init_sd)
-        nn.init.normal_(self.diag_causal, 0, init_sd)
-        # Spurious
-        self.mu_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size))
-        self.offdiag_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size, z_size))
-        self.diag_spurious = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size))
-        nn.init.normal_(self.mu_spurious, 0, init_sd)
-        nn.init.normal_(self.offdiag_spurious, 0, init_sd)
-        nn.init.normal_(self.diag_spurious, 0, init_sd)
+        # Parent
+        self.mu_parent = nn.Parameter(torch.zeros(z_size))
+        self.offdiag_parent = nn.Parameter(torch.zeros(z_size, z_size))
+        self.diag_parent = nn.Parameter(torch.zeros(z_size))
+        nn.init.normal_(self.mu_parent, 0, init_sd)
+        nn.init.normal_(self.offdiag_parent, 0, init_sd)
+        nn.init.normal_(self.diag_parent, 0, init_sd)
+        # Child
+        self.mu_child = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size))
+        self.offdiag_child = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size, z_size))
+        self.diag_child = nn.Parameter(torch.zeros(N_CLASSES, N_ENVS, z_size))
+        nn.init.normal_(self.mu_child, 0, init_sd)
+        nn.init.normal_(self.offdiag_child, 0, init_sd)
+        nn.init.normal_(self.diag_child, 0, init_sd)
 
-    def causal_dist(self, batch_size):
-        mu = repeat_batch(self.mu_causal, batch_size)
-        offdiag = repeat_batch(self.offdiag_causal, batch_size)
-        diag = repeat_batch(self.diag_causal, batch_size)
+    def parent_dist(self, batch_size):
+        mu = repeat_batch(self.mu_parent, batch_size)
+        offdiag = repeat_batch(self.offdiag_parent, batch_size)
+        diag = repeat_batch(self.diag_parent, batch_size)
         cov = arr_to_cov(offdiag, diag)
         return D.MultivariateNormal(mu, cov)
 
-    def spurious_dist(self, y, e):
-        mu = self.mu_spurious[y, e]
-        cov = arr_to_cov(self.offdiag_spurious[y, e], self.diag_spurious[y, e])
+    def child_dist(self, y, e):
+        mu = self.mu_child[y, e]
+        cov = arr_to_cov(self.offdiag_child[y, e], self.diag_child[y, e])
         return D.MultivariateNormal(mu, cov)
 
     def forward(self, y, e):
-        causal_dist = self.causal_dist(len(y))
-        spurious_dist = self.spurious_dist(y, e)
-        return causal_dist, spurious_dist
+        parent_dist = self.parent_dist(len(y))
+        child_dist = self.child_dist(y, e)
+        return parent_dist, child_dist
 
 
 class VAE(pl.LightningModule):
@@ -113,7 +113,8 @@ class VAE(pl.LightningModule):
         # q(z_c,z_s|x)
         self.encoder = Encoder(z_size, h_sizes)
         # p(x|z_c, z_s)
-        self.decoder = Decoder(z_size, h_sizes)
+        self.decoder_parent = Decoder(z_size, h_sizes)
+        self.decoder_child = Decoder(z_size, h_sizes)
         # p(z_c,z_s|y,e)
         self.prior = Prior(z_size, init_sd)
         # p(y|z)
@@ -130,22 +131,23 @@ class VAE(pl.LightningModule):
     def loss(self, x, y, e):
         batch_size = len(x)
         # z_c,z_s ~ q(z_c,z_s|x)
-        posterior_causal, posterior_spurious = self.encoder(x, y, e)
-        z_c = self.sample_z(posterior_causal)
-        z_s = self.sample_z(posterior_spurious)
+        posterior_parent, posterior_child = self.encoder(x, y, e)
+        z_parent = self.sample_z(posterior_parent)
+        z_child = self.sample_z(posterior_child)
         # E_q(z_c,z_s|x)[log p(x|z_c,z_s)]
-        z = torch.hstack((z_c, z_s))
-        x_pred = self.decoder(z)
+        x_pred_parent = self.decoder_parent(z_parent)
+        x_pred_child = self.decoder_child(z_child)
+        x_pred = x_pred_parent + x_pred_child
         log_prob_x_z = -F.binary_cross_entropy_with_logits(x_pred, x.view(batch_size, -1), reduction='none').sum(dim=1).mean()
         # E_q(z_c|x)[log p(y|z_c)]
-        y_pred = self.classifier(z_c).view(-1)
+        y_pred = self.classifier(z_parent).view(-1)
         log_prob_y_zc = -F.binary_cross_entropy_with_logits(y_pred, y.float())
         # KL(q(z_c,z_s|x) || p(z_c|e)p(z_s|y,e))
-        prior_causal, prior_spurious = self.prior(y, e)
-        kl_causal = D.kl_divergence(posterior_causal, prior_causal).mean()
-        kl_spurious = D.kl_divergence(posterior_spurious, prior_spurious).mean()
-        kl = kl_causal + kl_spurious
-        prior_reg = (torch.hstack((prior_causal.loc, prior_spurious.loc)) ** 2).mean()
+        prior_parent, prior_child = self.prior(y, e)
+        kl_parent = D.kl_divergence(posterior_parent, prior_parent).mean()
+        kl_child = D.kl_divergence(posterior_child, prior_child).mean()
+        kl = kl_parent + kl_child
+        prior_reg = (torch.hstack((prior_parent.loc, prior_child.loc)) ** 2).mean()
         loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + kl + self.prior_reg_mult * prior_reg
         return loss
 
@@ -168,10 +170,10 @@ class VAE(pl.LightningModule):
         self.log('test_acc', self.test_acc.compute())
 
     def classify(self, x):
-        x = self.encoder.encoder_cnn(x).flatten(start_dim=1)
-        causal_dist = self.encoder.causal_dist(x)
-        z_c = causal_dist.loc
-        y_pred = self.classifier(z_c).view(-1)
+        x = self.encoder.ecnn(x).flatten(start_dim=1)
+        parent_dist = self.encoder.parent_dist(x)
+        z_parent = parent_dist.loc
+        y_pred = self.classifier(z_parent).view(-1)
         return y_pred
 
     def test_step(self, batch, batch_idx):

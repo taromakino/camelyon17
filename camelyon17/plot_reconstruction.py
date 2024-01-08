@@ -15,14 +15,15 @@ IMAGE_SHAPE = (3, 96, 96)
 def sample_prior(rng, model):
     y = torch.tensor(rng.choice(N_CLASSES), dtype=torch.long, device=model.device)[None]
     e = torch.tensor(rng.choice(N_ENVS), dtype=torch.long, device=model.device)[None]
-    causal_dist, spurious_dist = model.prior(y, e)
-    zc_sample, zs_sample = causal_dist.sample(), spurious_dist.sample()
-    return zc_sample, zs_sample
+    prior_parent, prior_child = model.prior(y, e)
+    z_parent, z_child = prior_parent.sample(), prior_child.sample()
+    return z_parent, z_child
 
 
-def reconstruct_x(model, z_c, z_s):
-    z = torch.hstack((z_c, z_s))
-    x_pred = model.decoder(z)
+def reconstruct_x(model, z_parent, z_child):
+    x_pred_parent = model.decoder_parent(z_parent)
+    x_pred_child = model.decoder_child(z_child)
+    x_pred = x_pred_parent + x_pred_child
     return torch.sigmoid(x_pred)
 
 
@@ -41,25 +42,25 @@ def main(args):
     model.eval()
     example_idxs = rng.choice(len(data_train), args.n_examples, replace=False)
     for i, example_idx in enumerate(example_idxs):
-        x_seed, y_seed, e_seed = data_train.dataset.__getitem__(example_idx)
-        x_seed, y_seed, e_seed = x_seed[None].to(model.device), y_seed[None].to(model.device), e_seed[None].to(model.device)
-        causal_dist, spurious_dist = model.encoder(x_seed, y_seed, e_seed)
-        zc_seed, zs_seed = causal_dist.loc, spurious_dist.loc
+        x, y, e = data_train.dataset.__getitem__(example_idx)
+        x, y, e = x[None].to(model.device), y[None].to(model.device), e[None].to(model.device)
+        posterior_parent, posterior_child = model.encoder(x, y, e)
+        z_parent, z_child = posterior_parent.loc, posterior_child.loc
         fig, axes = plt.subplots(2, args.n_cols, figsize=(2 * args.n_cols, 2 * 2))
         for ax in axes.flatten():
             ax.set_xticks([])
             ax.set_yticks([])
-        plot(axes[0, 0], x_seed)
-        plot(axes[1, 0], x_seed)
-        x_pred = reconstruct_x(model, zc_seed, zs_seed)
+        plot(axes[0, 0], x)
+        plot(axes[1, 0], x)
+        x_pred = reconstruct_x(model, z_parent, z_child)
         plot(axes[0, 1], x_pred)
         plot(axes[1, 1], x_pred)
         for col_idx in range(2, args.n_cols):
-            zc_sample, zs_sample = sample_prior(rng, model)
-            x_pred_causal = reconstruct_x(model, zc_sample, zs_seed)
-            x_pred_spurious = reconstruct_x(model, zc_seed, zs_sample)
-            plot(axes[0, col_idx], x_pred_causal)
-            plot(axes[1, col_idx], x_pred_spurious)
+            z_parent_prior, z_child_prior = sample_prior(rng, model)
+            x_pred_parent = reconstruct_x(model, z_parent_prior, z_child)
+            x_pred_child = reconstruct_x(model, z_parent, z_child_prior)
+            plot(axes[0, col_idx], x_pred_parent)
+            plot(axes[1, col_idx], x_pred_child)
         fig_dpath = os.path.join(task_dpath, f'version_{args.seed}', 'fig', 'plot_reconstruction')
         os.makedirs(fig_dpath, exist_ok=True)
         plt.savefig(os.path.join(fig_dpath, f'{i}.png'))
