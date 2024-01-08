@@ -37,8 +37,8 @@ def make_model(args):
         else:
             return ERM.load_from_checkpoint(ckpt_fpath(args, args.task))
     elif args.task == Task.VAE:
-        return VAE(args.task, args.z_size, args.h_sizes, args.y_mult, args.prior_reg_mult, args.init_sd, args.lr,
-            args.weight_decay)
+        return VAE(args.task, args.z_size, args.h_sizes, args.y_mult, args.beta, args.prior_reg_mult, args.init_sd,
+            args.lr, args.weight_decay)
     else:
         assert args.task == Task.CLASSIFY
         return VAE.load_from_checkpoint(ckpt_fpath(args, Task.VAE), task=args.task)
@@ -92,9 +92,10 @@ if __name__ == '__main__':
     parser.add_argument('--z_size', type=int, default=64)
     parser.add_argument('--h_sizes', nargs='+', type=int, default=[256, 256])
     parser.add_argument('--y_mult', type=float, default=1)
+    parser.add_argument('--beta', type=float, default=1)
     parser.add_argument('--prior_reg_mult', type=float, default=1e-5)
-    parser.add_argument('--init_sd', type=float, default=1)
+    parser.add_argument('--init_sd', type=float, default=0.1)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--weight_decay', type=float, default=1e-5)
-    parser.add_argument('--n_epochs', type=int, default=50)
+    parser.add_argument('--n_epochs', type=int, default=100)
     main(parser.parse_args())

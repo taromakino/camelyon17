@@ -102,11 +102,12 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, h_sizes, y_mult, prior_reg_mult, init_sd, lr, weight_decay):
+    def __init__(self, task, z_size, h_sizes, y_mult, beta, prior_reg_mult, init_sd, lr, weight_decay):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
         self.y_mult = y_mult
+        self.beta = beta
         self.prior_reg_mult = prior_reg_mult
         self.lr = lr
         self.weight_decay = weight_decay
@@ -148,7 +149,7 @@ class VAE(pl.LightningModule):
         kl_child = D.kl_divergence(posterior_child, prior_child).mean()
         kl = kl_parent + kl_child
         prior_reg = (torch.hstack((prior_parent.loc, prior_child.loc)) ** 2).mean()
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + kl + self.prior_reg_mult * prior_reg
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.prior_reg_mult * prior_reg
         return loss
 
     def training_step(self, batch, batch_idx):
