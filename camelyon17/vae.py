@@ -102,15 +102,15 @@ class Prior(nn.Module):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, task, z_size, h_sizes, y_mult, prior_reg_mult, init_sd, lr, weight_decay, kl_anneal_epochs):
+    def __init__(self, task, z_size, h_sizes, y_mult, beta, prior_reg_mult, init_sd, lr, weight_decay):
         super().__init__()
         self.save_hyperparameters()
         self.task = task
         self.y_mult = y_mult
+        self.beta = beta
         self.prior_reg_mult = prior_reg_mult
         self.lr = lr
         self.weight_decay = weight_decay
-        self.kl_anneal_epochs = kl_anneal_epochs
         # q(z_c,z_s|x)
         self.encoder = Encoder(z_size, h_sizes)
         # p(x|z_c, z_s)
@@ -120,7 +120,6 @@ class VAE(pl.LightningModule):
         # p(y|z)
         self.classifier = nn.Linear(z_size, 1)
         self.val_id_acc = Accuracy('binary')
-        self.val_ood_acc = Accuracy('binary')
         self.test_acc = Accuracy('binary')
 
     def sample_z(self, dist):
@@ -128,9 +127,6 @@ class VAE(pl.LightningModule):
         batch_size, z_size = mu.shape
         epsilon = torch.randn(batch_size, z_size, 1).to(self.device)
         return mu + torch.bmm(scale_tril, epsilon).squeeze(-1)
-
-    def kl_mult(self):
-        return min(1., self.current_epoch / self.kl_anneal_epochs)
 
     def loss(self, x, y, e):
         batch_size = len(x)
@@ -151,31 +147,25 @@ class VAE(pl.LightningModule):
         kl_spurious = D.kl_divergence(posterior_spurious, prior_spurious).mean()
         kl = kl_causal + kl_spurious
         prior_reg = (torch.hstack((prior_causal.loc, prior_spurious.loc)) ** 2).mean()
-        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.kl_mult() * kl + self.prior_reg_mult * prior_reg
-        return loss, kl
+        loss = -log_prob_x_z - self.y_mult * log_prob_y_zc + self.beta * kl + self.prior_reg_mult * prior_reg
+        return loss
 
     def training_step(self, batch, batch_idx):
         x, y, e = batch
-        loss, kl = self.loss(x, y, e)
+        loss = self.loss(x, y, e)
         return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
         x, y, e = batch
         y_pred = self.classify(x)
         if dataloader_idx == 0:
-            loss, kl = self.loss(x, y, e)
-            self.log('val_kl', kl, on_step=False, on_epoch=True, add_dataloader_idx=False)
-            self.log('val_loss', loss, on_step=False, on_epoch=True, add_dataloader_idx=False)
             self.val_id_acc.update(y_pred, y)
-        elif dataloader_idx == 1:
-            self.val_ood_acc.update(y_pred, y)
         else:
-            assert dataloader_idx == 2
+            assert dataloader_idx == 1
             self.test_acc.update(y_pred, y)
 
     def on_validation_epoch_end(self):
         self.log('val_id_acc', self.val_id_acc.compute())
-        self.log('val_ood_acc', self.val_ood_acc.compute())
         self.log('test_acc', self.test_acc.compute())
 
     def classify(self, x):
